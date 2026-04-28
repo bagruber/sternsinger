@@ -1,8 +1,8 @@
 // js/api.js — Backend API client (Supabase REST)
 // Replace SUPABASE_URL and SUPABASE_ANON_KEY with your actual values.
 
-const SUPABASE_URL = "https://YOUR_PROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR_ANON_KEY";
+const SUPABASE_URL = "https://kgrmlzlagahsjpsgatoc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_8xrpeD4PUXFRBlz9n6g9NQ_2DULIHpV";
 
 const headers = () => ({
   "Content-Type": "application/json",

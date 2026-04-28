@@ -13,18 +13,27 @@ let longPressTarget = null;
 
 const COLORS = ["#e74c3c", "#e67e22", "#f1c40f", "#2ecc71", "#3498db", "#9b59b6"];
 const MIN_ZOOM = 17;
+const GROUPS = [
+  "Neustadt I",
+  "Neustadt II",
+  "Bonau",
+  "Westerberg",
+  "Amperauen",
+  "Unteres Gereuth"
+];
 
 // ─── Map Init ─────────────────────────────────────────────────────────────────
 const map = L.map("map", {
-  center: [49.0192, 12.0975],
-  zoom: 18,
+  center: [48.4689, 11.9376], // Moosburg a.d. Isar
+  zoom: 16,
   zoomControl: false,
-  attributionControl: true
+  attributionControl: true,
+  maxZoom: 19
 });
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap contributors",
-  maxZoom: 21
+  maxZoom: 19
 }).addTo(map);
 
 // Add zoom control top-right
@@ -46,19 +55,25 @@ function showGroupModal() {
   document.getElementById("group-modal").classList.remove("hidden");
 }
 
-document.getElementById("group-confirm").addEventListener("click", () => {
-  const input = document.getElementById("group-input").value.trim();
-  if (!input) return;
-  groupId = input;
-  localStorage.setItem("groupId", groupId);
-  document.getElementById("group-modal").classList.add("hidden");
-  updateGroupDisplay();
-  loadAnnotations();
-});
+function renderGroupList() {
+  const container = document.getElementById("group-list");
+  container.innerHTML = "";
+  GROUPS.forEach(name => {
+    const btn = document.createElement("button");
+    btn.className = "group-option";
+    btn.textContent = name;
+    btn.addEventListener("click", () => {
+      groupId = name;
+      localStorage.setItem("groupId", groupId);
+      document.getElementById("group-modal").classList.add("hidden");
+      updateGroupDisplay();
+      loadAnnotations();
+    });
+    container.appendChild(btn);
+  });
+}
 
-document.getElementById("group-change").addEventListener("click", () => {
-  localStorage.removeItem("groupId");
-  groupId = "";
+document.getElementById("group-chip").addEventListener("click", () => {
   showGroupModal();
 });
 
@@ -92,6 +107,10 @@ async function renderBuildings() {
     style: feature => buildingStyle(feature.properties.id),
     onEachFeature: (feature, layer) => {
       attachTouchHandlers(feature, layer);
+      const ann = annotations[feature.properties.id];
+      if (ann?.comment) {
+        layer.bindTooltip("💬", { permanent: true, className: "comment-badge", direction: "center" });
+      }
     }
   }).addTo(map);
 }
@@ -176,6 +195,7 @@ function eraseLayer(layer, id) {
 
   delete annotations[id];
   layer.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
+  layer.unbindTooltip();
   if (navigator.vibrate) navigator.vibrate(8);
 
   deleteAnnotation({ building_id: id, group_id: groupId })
@@ -330,4 +350,5 @@ map.on("touchend", () => map.dragging.enable());
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 initSwatches();
+renderGroupList();
 setupGroup();

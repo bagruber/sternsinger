@@ -23,7 +23,7 @@
 
 <!-- ── TOP HUD ────────────────────────────────────────────────── -->
 <div id="top-hud">
-  <div id="group-chip" id="group-change" title="Gruppe wechseln">
+  <div id="group-chip" title="Gruppe wechseln">
     <div class="dot"></div>
     <span id="group-label">–</span>
   </div>
@@ -67,20 +67,9 @@
 <!-- ── GROUP MODAL ────────────────────────────────────────────── -->
 <div id="group-modal" class="modal-backdrop">
   <div class="modal-box">
-    <h2>Gruppe eingeben</h2>
-    <p>Gib einen Gruppenname ein. Alle Markierungen werden dieser Gruppe zugeordnet.</p>
-    <input
-      type="text"
-      id="group-input"
-      placeholder="z. B. gruppe_a"
-      autocomplete="off"
-      autocorrect="off"
-      autocapitalize="none"
-      spellcheck="false"
-    />
-    <div class="modal-actions">
-      <button class="btn-primary" id="group-confirm">Bestätigen</button>
-    </div>
+    <h2>Gruppe wählen</h2>
+    <p>Alle Markierungen werden dieser Gruppe zugeordnet.</p>
+    <div id="group-list"></div>
   </div>
 </div>
 
@@ -99,13 +88,6 @@
 
 <!-- ── TOAST ──────────────────────────────────────────────────── -->
 <div id="toast"></div>
-
-<!-- ── GROUP CHANGE HANDLER ───────────────────────────────────── -->
-<script>
-  document.getElementById("group-chip").addEventListener("click", () => {
-    document.getElementById("group-change").click?.();
-  });
-</script>
 
 <!-- ── APP ───────────────────────────────────────────────────── -->
 <script type="module" src="js/app.js"></script>
