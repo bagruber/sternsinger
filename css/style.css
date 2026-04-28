@@ -233,6 +233,32 @@ html, body {
 
 .btn-secondary:hover { background: #333; color: var(--text); }
 
+#group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-option {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.group-option:hover, .group-option:focus {
+  border-color: var(--accent);
+  background: var(--border);
+  outline: none;
+}
+
 /* ── TOP HUD ── */
 #top-hud {
   position: fixed;

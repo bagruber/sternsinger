@@ -35,7 +35,15 @@ const SUPABASE_URL = "https://DEIN-PROJEKT.supabase.co";
 const SUPABASE_ANON_KEY = "DEIN_ANON_KEY";
 ```
 
-### 3. GitHub Pages deployen
+### 3. Gebäudedaten ziehen
+
+```bash
+node scripts/fetch-buildings.mjs
+```
+
+Holt alle Gebäude im Stadtgebiet Moosburg a.d. Isar aus OpenStreetMap und schreibt `data/buildings.geojson`. Anderes Gebiet: `AREA_NAME` im Skript anpassen.
+
+### 4. GitHub Pages deployen
 
 ```bash
 # Neues GitHub Repository erstellen (z.B. "gebaude-marker")
@@ -69,7 +77,9 @@ const SUPABASE_ANON_KEY = "DEIN_ANON_KEY";
 │   ├── app.js              # Haupt-Logik (Karte, Touch, State)
 │   └── api.js              # Supabase API Client
 ├── data/
-│   └── buildings.geojson   # Mock-Gebäude (20 Gebäude, Regensburg-Bereich)
+│   └── buildings.geojson   # Gebäude-Polygone (von scripts/fetch-buildings.mjs erzeugt)
+├── scripts/
+│   └── fetch-buildings.mjs # OSM Overpass → GeoJSON
 └── supabase_schema.sql     # Datenbank-Schema (einmalig ausführen)
 ```
 
@@ -77,7 +87,8 @@ const SUPABASE_ANON_KEY = "DEIN_ANON_KEY";
 
 ## Nächste Schritte
 
-- [ ] Echte Gebäudedaten: Bayern Hausumringe oder OpenStreetMap Overpass API
+- [ ] Touch-Painting blockt Map-Pan zuverlässig (aktuell Race-Condition)
+- [ ] Undo stellt auch gelöschte Kommentare wieder her
 - [ ] Magic Link Auth (Supabase Auth) statt localStorage-Gruppen-ID
 - [ ] Realtime-Sync via Supabase Channels (mehrere Nutzer gleichzeitig)
 - [ ] Multi-Gruppen Overlay (alle Gruppen gleichzeitig anzeigen)
