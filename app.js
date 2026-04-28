@@ -1,106 +1,103 @@
+import { generateBuildings } from './generateBuildings.js';
+
 const map = L.map('map').setView([48.47, 11.937], 18);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19
-}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-// Zustände
-let mode = "brush"; // brush | erase | single | comment
+let mode = "brush";
+let history = [];
 
-const saved = JSON.parse(localStorage.getItem("colors") || {});
-
-function saveColor(id, color) {
-  saved[id] = color;
-  localStorage.setItem("colors", JSON.stringify(saved));
-}
-
-// UI Buttons
-const controls = L.control({ position: 'topright' });
-
-controls.onAdd = function () {
-  const div = L.DomUtil.create('div', 'controls');
-
-  div.innerHTML = `
-    <button onclick="setMode('brush')">🟢</button>
-    <button onclick="setMode('erase')">⚪</button>
-    <button onclick="setMode('single')">☝️</button>
-    <button onclick="setMode('comment')">💬</button>
-  `;
-  return div;
-};
-
-controls.addTo(map);
+const cursor = document.getElementById("cursor");
 
 window.setMode = (m) => {
   mode = m;
-  console.log("Mode:", mode);
 };
 
-// GeoJSON
-fetch('buildings.geojson')
-  .then(res => res.json())
-  .then(data => {
+window.undo = () => {
+  const last = history.pop();
+  if (!last) return;
 
-    const geoLayer = L.geoJSON(data, {
-      style: feature => ({
-        color: "#333",
-        weight: 1,
-        fillColor: saved[feature.properties.id] || "#cccccc",
-        fillOpacity: 0.7
-      }),
+  last.layer.setStyle({ fillColor: last.prev });
+};
 
-      onEachFeature: (feature, layer) => {
+const saved = {};
 
-        // TAP (Einzelauswahl / Kommentar)
-        layer.on('click', () => {
+function paint(feature, layer, color) {
+  const prev = layer.options.fillColor;
 
-          if (mode === "single") {
-            toggle(feature, layer);
-          }
+  history.push({ layer, prev });
 
-          if (mode === "comment") {
-            const text = prompt("Kommentar:");
-            if (text) {
-              console.log("Kommentar für", feature.properties.id, text);
-            }
-          }
-        });
-      }
-    }).addTo(map);
+  layer.setStyle({ fillColor: color, fillOpacity: 0.9 });
 
-    // 🔥 TOUCH PAINTING
-    map.on('touchmove', function (e) {
+  setTimeout(() => {
+    layer.setStyle({ fillOpacity: 0.7 });
+  }, 100);
 
-      if (mode !== "brush" && mode !== "erase") return;
+  if (navigator.vibrate) navigator.vibrate(10);
+}
 
-      const point = e.containerPoint;
-      const latlng = map.containerPointToLatLng(point);
+const data = generateBuildings(600);
 
-      geoLayer.eachLayer(layer => {
-        if (layer.getBounds().contains(latlng)) {
-          paint(layer.feature, layer);
-        }
-      });
+const geoLayer = L.geoJSON(data, {
+  style: () => ({
+    color: "#333",
+    weight: 1,
+    fillColor: "#ccc",
+    fillOpacity: 0.7
+  }),
+
+  onEachFeature: (feature, layer) => {
+
+    let pressTimer;
+
+    layer.on('touchstart', (e) => {
+      pressTimer = setTimeout(() => {
+        const text = prompt("Kommentar:");
+        console.log("Kommentar", feature.properties.id, text);
+      }, 500);
     });
 
-    function paint(feature, layer) {
+    layer.on('touchend', () => {
+      clearTimeout(pressTimer);
+    });
+
+    layer.on('click', () => {
+      if (mode === "single") {
+        const current = layer.options.fillColor;
+        const next = current === "#ff0000" ? "#ccc" : "#ff0000";
+        paint(feature, layer, next);
+      }
+    });
+  }
+}).addTo(map);
+
+// 🔥 PAINT MODE
+map.on('touchmove', (e) => {
+
+  cursor.style.left = e.originalEvent.touches[0].clientX + "px";
+  cursor.style.top = e.originalEvent.touches[0].clientY + "px";
+
+  if (mode !== "brush" && mode !== "erase") return;
+
+  const latlng = map.containerPointToLatLng(e.containerPoint);
+
+  geoLayer.eachLayer(layer => {
+    if (layer.getBounds().contains(latlng)) {
+
       if (mode === "brush") {
-        layer.setStyle({ fillColor: "#ff0000" });
-        saveColor(feature.properties.id, "#ff0000");
+        paint(layer.feature, layer, "#ff0000");
       }
 
       if (mode === "erase") {
-        layer.setStyle({ fillColor: "#cccccc" });
-        saveColor(feature.properties.id, "#cccccc");
+        paint(layer.feature, layer, "#ccc");
       }
     }
-
-    function toggle(feature, layer) {
-      const current = saved[feature.properties.id];
-
-      const next = current === "#ff0000" ? "#cccccc" : "#ff0000";
-
-      layer.setStyle({ fillColor: next });
-      saveColor(feature.properties.id, next);
-    }
   });
+});
+
+// scroll verhindern
+map.getContainer().addEventListener('touchmove', e => {
+  if (mode === "brush" || mode === "erase") {
+    e.preventDefault();
+  }
+}, { passive: false });
