@@ -18,8 +18,14 @@ const DAYS = [
   { n: 3, color: "#2ecc71", label: "Tag 3" },
   { n: 4, color: "#3498db", label: "Tag 4" }
 ];
-const MIN_ZOOM = 17;
-const BRUSH_RADIUS_PX = 50;
+const MIN_ZOOM = 16;
+const BRUSH_RADIUS_PX = 40;
+const LONG_PRESS_MS = 600;
+const PERIOD_CUTOFF_HOUR = 13;
+
+function currentPeriod() {
+  return new Date().getHours() < PERIOD_CUTOFF_HOUR ? "morning" : "afternoon";
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let mode = "idle";          // idle | brush | erase | single
@@ -32,7 +38,7 @@ let buildingLayer;
 let isPainting = false;
 let touchedThisStroke = new Set(); // dedupe within one swipe
 let longPressTimer = null;
-let singleTapMoved = false;
+let longPressFired = false; // suppress click that follows a long-press
 
 // ─── Map ─────────────────────────────────────────────────────────────────────
 const map = L.map("map", {
@@ -110,7 +116,7 @@ async function loadAnnotations() {
     const data = await fetchAnnotations(groupId);
     annotations = {};
     data.forEach(a => {
-      annotations[a.building_id] = { day: a.day, color: a.color, comment: a.comment, tag: a.tag };
+      annotations[a.building_id] = { day: a.day, period: a.period, color: a.color, comment: a.comment, tag: a.tag };
     });
   } catch (e) {
     console.warn("Could not load annotations:", e.message);
@@ -129,12 +135,48 @@ async function renderBuildings() {
     onEachFeature: (feature, layer) => {
       const id = feature.properties.id;
       layersById.set(id, layer);
+      attachLayerHandlers(id, layer);
       const ann = annotations[id];
       if (ann?.comment) {
         layer.bindTooltip("💬", { permanent: true, className: "comment-badge", direction: "center" });
       }
     }
   }).addTo(map);
+}
+
+function attachLayerHandlers(id, layer) {
+  // Single-mode tap: leaflet's click event fires reliably on touch + mouse.
+  layer.on("click", () => {
+    if (mode !== "single") return;
+    if (longPressFired) { longPressFired = false; return; }
+    if (map.getZoom() < MIN_ZOOM) {
+      showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`);
+      return;
+    }
+    toggleSingle(id);
+  });
+
+  // Long-press: start timer on press, fire dialog after threshold, cancel on move/up.
+  const startPress = () => {
+    if (mode !== "single") return;
+    if (map.getZoom() < MIN_ZOOM) return;
+    cancelLongPress();
+    longPressFired = false;
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      longPressFired = true;
+      if (navigator.vibrate) navigator.vibrate(20);
+      openCommentDialog(id);
+    }, LONG_PRESS_MS);
+  };
+  layer.on("mousedown", startPress);
+  layer.on("touchstart", startPress);
+  const cancel = () => cancelLongPress();
+  layer.on("mouseup", cancel);
+  layer.on("mouseout", cancel);
+  layer.on("touchend", cancel);
+  layer.on("touchcancel", cancel);
+  layer.on("touchmove", cancel);
 }
 
 function buildingStyle(id) {
@@ -160,13 +202,14 @@ function paintBuilding(id) {
   if (existing) return;
 
   const day = DAYS.find(d => d.n === currentDay);
+  const period = currentPeriod();
   history.push({ id, prev: null });
-  annotations[id] = { day: currentDay, color: day.color };
+  annotations[id] = { day: currentDay, period, color: day.color };
   layer.setStyle({ fillColor: day.color, fillOpacity: 0.9 });
   setTimeout(() => layer.setStyle({ fillOpacity: 0.75 }), 120);
   if (navigator.vibrate) navigator.vibrate(8);
 
-  upsertAnnotation({ building_id: id, group_id: groupId, day: currentDay, color: day.color })
+  upsertAnnotation({ building_id: id, group_id: groupId, day: currentDay, period, color: day.color })
     .catch(e => console.warn("upsert failed:", e.message));
 }
 
@@ -220,41 +263,6 @@ function buildingsNearPoint(containerPoint, radiusPx) {
   return hits;
 }
 
-function buildingAtPoint(containerPoint) {
-  const latlng = map.containerPointToLatLng(containerPoint);
-  const bounds = map.getBounds();
-  let best = null;
-  layersById.forEach((layer, id) => {
-    if (!bounds.intersects(layer.getBounds())) return;
-    if (layer.getBounds().contains(latlng) && pointInPolygon(latlng, layer)) {
-      best = id;
-    }
-  });
-  return best;
-}
-
-function pointInPolygon(latlng, layer) {
-  // Ray casting on outer ring(s). Layer can be Polygon or MultiPolygon.
-  const rings = layer.getLatLngs();
-  const polys = Array.isArray(rings[0][0]) ? rings : [rings];
-  for (const poly of polys) {
-    const ring = poly[0]; // outer ring
-    if (rayCast(latlng, ring)) return true;
-  }
-  return false;
-}
-function rayCast(p, ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = ring[i].lng, yi = ring[i].lat;
-    const xj = ring[j].lng, yj = ring[j].lat;
-    const intersect = ((yi > p.lat) !== (yj > p.lat)) &&
-      (p.lng < (xj - xi) * (p.lat - yi) / (yj - yi) + xi);
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
 // ─── Touch / mouse ───────────────────────────────────────────────────────────
 const mapEl = map.getContainer();
 
@@ -272,12 +280,13 @@ function clientToContainerPoint(t) {
   return L.point(t.clientX - rect.left, t.clientY - rect.top);
 }
 
+function isBrushMode() { return mode === "brush" || mode === "erase"; }
+
 mapEl.addEventListener("touchstart", (e) => {
-  if (!isEditMode()) return;
+  if (!isBrushMode()) return;
   if (e.touches.length >= 2) {
-    map.dragging.enable(); // allow 2-finger pan
+    map.dragging.enable();
     isPainting = false;
-    cancelLongPress();
     return;
   }
   if (map.getZoom() < MIN_ZOOM) {
@@ -288,47 +297,23 @@ mapEl.addEventListener("touchstart", (e) => {
   map.dragging.disable();
   isPainting = true;
   touchedThisStroke = new Set();
-  const cp = clientToContainerPoint(e.touches[0]);
-
-  if (mode === "single") {
-    singleTapMoved = false;
-    longPressStart(cp);
-  } else {
-    paintAtPoint(cp);
-  }
+  paintAtPoint(clientToContainerPoint(e.touches[0]));
 }, { passive: false });
 
 mapEl.addEventListener("touchmove", (e) => {
-  if (!isEditMode()) return;
+  if (!isBrushMode()) return;
   if (e.touches.length >= 2) {
     isPainting = false;
-    cancelLongPress();
     map.dragging.enable();
     return;
   }
   if (!isPainting) return;
   e.preventDefault();
-  cancelLongPress();
-  if (mode === "single") {
-    singleTapMoved = true;
-  } else {
-    paintAtPoint(clientToContainerPoint(e.touches[0]));
-  }
+  paintAtPoint(clientToContainerPoint(e.touches[0]));
 }, { passive: false });
 
 mapEl.addEventListener("touchend", () => {
-  if (!isEditMode()) return;
-  if (mode === "single" && isPainting && longPressTimer && !singleTapMoved) {
-    const cp = lastLongPressPoint;
-    if (cp) {
-      const id = buildingAtPoint(cp);
-      if (id) toggleSingle(id);
-    }
-  }
   isPainting = false;
-  cancelLongPress();
-  // Re-enable dragging only if leaving edit mode is impossible without click → just set on next touchstart.
-  if (!isEditMode()) map.dragging.enable();
 }, { passive: false });
 
 function paintAtPoint(containerPoint) {
@@ -337,17 +322,6 @@ function paintAtPoint(containerPoint) {
   else if (mode === "erase") ids.forEach(eraseBuilding);
 }
 
-// ─── Long press (single mode only) ───────────────────────────────────────────
-let lastLongPressPoint = null;
-function longPressStart(containerPoint) {
-  lastLongPressPoint = containerPoint;
-  longPressTimer = setTimeout(() => {
-    longPressTimer = null;
-    isPainting = false;
-    const id = buildingAtPoint(containerPoint);
-    if (id) openCommentDialog(id);
-  }, 600);
-}
 function cancelLongPress() {
   clearTimeout(longPressTimer);
   longPressTimer = null;
@@ -366,14 +340,14 @@ function openCommentDialog(id) {
     const text = document.getElementById("comment-input").value.trim();
     if (!annotations[id]) {
       const day = DAYS.find(d => d.n === currentDay);
-      annotations[id] = { day: currentDay, color: day.color };
+      annotations[id] = { day: currentDay, period: currentPeriod(), color: day.color };
       layer?.setStyle({ fillColor: day.color, fillOpacity: 0.75 });
     }
     annotations[id].comment = text || null;
 
     const ann = annotations[id];
     if (text) {
-      upsertAnnotation({ building_id: id, group_id: groupId, day: ann.day, color: ann.color, comment: text })
+      upsertAnnotation({ building_id: id, group_id: groupId, day: ann.day, period: ann.period, color: ann.color, comment: text })
         .catch(e => console.warn("comment upsert failed:", e.message));
       layer?.bindTooltip("💬", { permanent: true, className: "comment-badge", direction: "center" });
     } else {
@@ -399,7 +373,7 @@ function undo() {
   } else {
     annotations[id] = { ...prev };
     layer?.setStyle({ fillColor: prev.color, fillOpacity: 0.75 });
-    upsertAnnotation({ building_id: id, group_id: groupId, day: prev.day, color: prev.color, comment: prev.comment, tag: prev.tag })
+    upsertAnnotation({ building_id: id, group_id: groupId, day: prev.day, period: prev.period, color: prev.color, comment: prev.comment, tag: prev.tag })
       .catch(() => {});
   }
   if (navigator.vibrate) navigator.vibrate([5, 30, 5]);

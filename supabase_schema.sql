@@ -11,6 +11,7 @@ create table annotations (
   building_id text not null,
   group_id    text not null,
   day         int  not null check (day between 1 and 4),
+  period      text check (period in ('morning', 'afternoon')),
   color       text,
   tag         text check (tag in ('attention', 'important')),
   comment     text,

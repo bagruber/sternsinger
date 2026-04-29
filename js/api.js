@@ -10,19 +10,26 @@ const headers = () => ({
   "Prefer": "return=minimal"
 });
 
+export async function fetchAllAnnotations() {
+  const url = `${SUPABASE_URL}/rest/v1/annotations?select=building_id,group_id,day,period,color,comment,tag,updated_at`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error(`fetchAllAnnotations failed: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchAnnotations(groupId) {
-  const url = `${SUPABASE_URL}/rest/v1/annotations?group_id=eq.${encodeURIComponent(groupId)}&select=building_id,day,color,comment,tag,updated_at`;
+  const url = `${SUPABASE_URL}/rest/v1/annotations?group_id=eq.${encodeURIComponent(groupId)}&select=building_id,day,period,color,comment,tag,updated_at`;
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) throw new Error(`fetchAnnotations failed: ${res.status}`);
   return res.json();
 }
 
-export async function upsertAnnotation({ building_id, group_id, day, color, comment = null, tag = null }) {
+export async function upsertAnnotation({ building_id, group_id, day, period = null, color, comment = null, tag = null }) {
   const url = `${SUPABASE_URL}/rest/v1/annotations`;
   const res = await fetch(url, {
     method: "POST",
     headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ building_id, group_id, day, color, comment, tag })
+    body: JSON.stringify({ building_id, group_id, day, period, color, comment, tag })
   });
   if (!res.ok) throw new Error(`upsertAnnotation failed: ${res.status}`);
 }

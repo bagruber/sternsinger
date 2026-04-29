@@ -23,7 +23,6 @@
 <!-- ── TOP HUD ────────────────────────────────────────────────── -->
 <div id="top-hud">
   <div id="group-chip" title="Gruppe wechseln">
-    <div class="dot"></div>
     <span id="group-label">–</span>
   </div>
 </div>
@@ -36,34 +35,35 @@
 <!-- ── BOTTOM BAR ─────────────────────────────────────────────── -->
 <div id="bottom-bar">
 
-  <!-- Day picker -->
-  <div id="day-picker"></div>
-
-  <!-- Mode buttons -->
-  <div class="mode-group">
-    <button class="mode-btn active" data-mode="idle" title="Navigieren">
-      <i data-lucide="hand"></i>
-      <span class="label">Nav</span>
-    </button>
-    <button class="mode-btn" data-mode="brush" title="Malen">
-      <i data-lucide="paintbrush-2"></i>
-      <span class="label">Malen</span>
-    </button>
-    <button class="mode-btn" data-mode="erase" title="Löschen">
-      <i data-lucide="eraser"></i>
-      <span class="label">Löschen</span>
-    </button>
-    <button class="mode-btn" data-mode="single" title="Einzeln">
-      <i data-lucide="mouse-pointer-click"></i>
-      <span class="label">Einzeln</span>
-    </button>
+  <div class="bar-row bar-row-top">
+    <div id="day-picker"></div>
   </div>
 
-  <!-- Undo -->
-  <button id="undo-btn" title="Rückgängig">
-    <i data-lucide="undo-2"></i>
-    <span class="label">Undo</span>
-  </button>
+  <div class="bar-row bar-row-bottom">
+    <div class="mode-group">
+      <button class="mode-btn active" data-mode="idle" title="Navigieren">
+        <i data-lucide="hand"></i>
+        <span class="label">Nav</span>
+      </button>
+      <button class="mode-btn" data-mode="brush" title="Malen">
+        <i data-lucide="paintbrush-2"></i>
+        <span class="label">Malen</span>
+      </button>
+      <button class="mode-btn" data-mode="erase" title="Löschen">
+        <i data-lucide="eraser"></i>
+        <span class="label">Löschen</span>
+      </button>
+      <button class="mode-btn" data-mode="single" title="Einzeln">
+        <i data-lucide="mouse-pointer-click"></i>
+        <span class="label">Einzeln</span>
+      </button>
+    </div>
+
+    <button id="undo-btn" title="Rückgängig">
+      <i data-lucide="undo-2"></i>
+      <span class="label">Undo</span>
+    </button>
+  </div>
 
 </div>
 
