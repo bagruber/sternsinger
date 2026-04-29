@@ -10,11 +10,12 @@ create table annotations (
   id          uuid primary key default gen_random_uuid(),
   building_id text not null,
   group_id    text not null,
-  day         int  not null check (day between 1 and 4),
-  period      text check (period in ('morning', 'afternoon')),
-  color       text,
-  tag         text check (tag in ('attention', 'important')),
-  comment     text,
+  day          int     not null check (day between 1 and 4),
+  period       text    check (period in ('morning', 'afternoon')),
+  color        text,
+  is_attention boolean not null default false,
+  is_important boolean not null default false,
+  comment      text,
   updated_at  timestamp default now(),
 
   unique (building_id, group_id)

@@ -125,7 +125,7 @@ function renderViews() {
 function renderSummary(rows) {
   const el = document.getElementById("dash-summary");
   const groups = new Set(rows.map(r => r.group_id)).size;
-  const withTag = rows.filter(r => r.tag).length;
+  const withTag = rows.filter(r => r.is_attention || r.is_important).length;
   const withComment = rows.filter(r => r.comment).length;
   el.innerHTML = `
     <div><strong>${rows.length}</strong> Markierungen</div>
@@ -157,7 +157,7 @@ function fillTable(blockId, data) {
 
 function renderSpecialList(rows) {
   const list = document.getElementById("special-items");
-  const specials = rows.filter(r => r.tag);
+  const specials = rows.filter(r => r.is_attention || r.is_important);
   if (specials.length === 0) {
     list.innerHTML = `<li class="empty">Keine Sondermarkierungen.</li>`;
     return;
@@ -165,10 +165,12 @@ function renderSpecialList(rows) {
   list.innerHTML = "";
   specials.forEach(a => {
     const li = document.createElement("li");
-    const badge = a.tag === "important" ? "★" : "!";
+    const badges = [];
+    if (a.is_important) badges.push("★");
+    if (a.is_attention) badges.push("!");
     const periodTxt = a.period === "morning" ? "VM" : a.period === "afternoon" ? "NM" : "";
     li.innerHTML = `
-      <span class="badge">${badge}</span>
+      <span class="badge">${badges.join(" ")}</span>
       <div>
         <div>${escapeHtml(a.group_id)} · Tag ${a.day}${periodTxt ? " " + periodTxt : ""}</div>
         ${a.comment ? `<div class="meta">${escapeHtml(a.comment)}</div>` : ""}
@@ -206,7 +208,7 @@ async function renderMap(rows) {
     filter: f => annById.has(f.properties.id),
     style: f => {
       const a = annById.get(f.properties.id);
-      return { color: "#222", weight: 1, fillColor: a.color, fillOpacity: 0.8 };
+      return { color: "#222", weight: 1, fillColor: a.color || "#9aa3b5", fillOpacity: 0.8 };
     },
     onEachFeature: (f, layer) => {
       const a = annById.get(f.properties.id);
@@ -214,7 +216,8 @@ async function renderMap(rows) {
         `<strong>${escapeHtml(a.group_id)}</strong>`,
         `Tag ${a.day}${a.period ? ` (${a.period === "morning" ? "vor" : "nach"} Mittag)` : ""}`
       ];
-      if (a.tag) parts.push(`Sondermarkierung: ${a.tag === "important" ? "★ wichtig" : "! Aufmerksamkeit"}`);
+      if (a.is_important) parts.push("★ wichtig");
+      if (a.is_attention) parts.push("! Aufmerksamkeit");
       if (a.comment) parts.push(`<em>${escapeHtml(a.comment)}</em>`);
       layer.bindPopup(parts.join("<br/>"));
     }

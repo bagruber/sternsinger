@@ -25,6 +25,12 @@
   <div id="group-chip" title="Gruppe wechseln">
     <span id="group-label">–</span>
   </div>
+  <button id="amount-btn" title="Schicht-Betrag eintragen">
+    <i data-lucide="euro"></i>
+  </button>
+  <a id="dashboard-link" href="dashboard.html" title="Dashboard">
+    <i data-lucide="bar-chart-3"></i>
+  </a>
 </div>
 
 <!-- ── ZOOM WARNING ───────────────────────────────────────────── -->
@@ -63,9 +69,9 @@
         <i data-lucide="eraser"></i>
         <span class="label">Löschen</span>
       </button>
-      <button class="mode-btn" data-mode="single" title="Einzeln">
-        <i data-lucide="mouse-pointer-click"></i>
-        <span class="label">Einzeln</span>
+      <button class="mode-btn" data-mode="detail" title="Detail">
+        <i data-lucide="square-pen"></i>
+        <span class="label">Detail</span>
       </button>
     </div>
 
@@ -86,15 +92,56 @@
   </div>
 </div>
 
-<!-- ── COMMENT DIALOG ─────────────────────────────────────────── -->
-<div id="comment-dialog" class="modal-backdrop hidden">
+<!-- ── DETAIL DIALOG ──────────────────────────────────────────── -->
+<div id="detail-dialog" class="modal-backdrop hidden">
   <div class="modal-box">
-    <h2>Kommentar</h2>
-    <p>Gebäude: <code id="comment-building-id"></code></p>
-    <textarea id="comment-input" placeholder="Kommentar eingeben …"></textarea>
+    <h2>Gebäude</h2>
+
+    <div class="detail-section">
+      <label>Farbe</label>
+      <div class="detail-colors" id="detail-colors"></div>
+    </div>
+
+    <div class="detail-section">
+      <label>Markierung</label>
+      <div class="detail-tags">
+        <button class="tag-toggle" data-tag="is_important">
+          <i data-lucide="star"></i>
+          <span>Wichtig</span>
+        </button>
+        <button class="tag-toggle" data-tag="is_attention">
+          <i data-lucide="alert-circle"></i>
+          <span>Aufmerksamkeit</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <label>Kommentar</label>
+      <textarea id="detail-comment" placeholder="optional"></textarea>
+    </div>
+
     <div class="modal-actions">
-      <button class="btn-secondary" id="comment-cancel">Abbrechen</button>
-      <button class="btn-primary" id="comment-save">Speichern</button>
+      <button class="btn-secondary" id="detail-cancel">Abbrechen</button>
+      <button class="btn-primary" id="detail-save">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── AMOUNT DIALOG ──────────────────────────────────────────── -->
+<div id="amount-dialog" class="modal-backdrop hidden">
+  <div class="modal-box">
+    <h2>Schicht-Betrag</h2>
+    <p id="amount-context"></p>
+    <label class="amount-label">Betrag (€)
+      <input id="amount-input" type="text" inputmode="decimal" placeholder="0,00" />
+    </label>
+    <label class="amount-label">Notiz (optional)
+      <textarea id="amount-notes" placeholder="z.B. Spendenbox verloren"></textarea>
+    </label>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="amount-cancel">Abbrechen</button>
+      <button class="btn-primary" id="amount-save">Speichern</button>
     </div>
   </div>
 </div>
