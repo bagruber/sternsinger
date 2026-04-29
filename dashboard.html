@@ -15,6 +15,18 @@
 </head>
 <body class="dashboard">
 
+<div id="auth-gate" class="modal-backdrop">
+  <div class="modal-box">
+    <h2>Dashboard</h2>
+    <p>Passwort eingeben.</p>
+    <input type="password" id="auth-input" autocomplete="off" />
+    <div class="modal-actions">
+      <button class="btn-primary" id="auth-submit">Öffnen</button>
+    </div>
+    <div id="auth-error" class="auth-error hidden">Falsches Passwort.</div>
+  </div>
+</div>
+
 <header id="dash-header">
   <div class="dash-title">
     <a href="index.html" class="back-link" title="Zur App">
@@ -57,8 +69,34 @@
       <h2>Vor / Nach Mittag</h2>
       <table></table>
     </div>
+    <div class="stat-block" id="special-list">
+      <h2>Sondermarkierungen</h2>
+      <ul id="special-items"></ul>
+    </div>
   </section>
 </main>
+
+<section id="dash-amounts">
+  <div class="amounts-header">
+    <h2>Gelder</h2>
+    <div id="amounts-totals"></div>
+  </div>
+  <div class="amounts-table-wrap">
+    <table id="amounts-table"></table>
+  </div>
+</section>
+
+<dialog id="notes-dialog">
+  <form method="dialog" class="modal-box">
+    <h2>Notiz</h2>
+    <p id="notes-context"></p>
+    <textarea id="notes-input" placeholder="Notiz eingeben …"></textarea>
+    <div class="modal-actions">
+      <button class="btn-secondary" value="cancel">Abbrechen</button>
+      <button class="btn-primary" value="save">Speichern</button>
+    </div>
+  </form>
+</dialog>
 
 <script type="module" src="js/dashboard.js"></script>
 </body>
