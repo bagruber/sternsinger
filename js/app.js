@@ -1,5 +1,5 @@
 // js/app.js
-import { fetchAnnotations, upsertAnnotation, deleteAnnotation, patchComment } from "./api.js";
+import { fetchAnnotations, upsertAnnotation, deleteAnnotation, fetchGroupAmount, upsertGroupAmount } from "./api.js";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const GROUPS = [
@@ -20,21 +20,19 @@ const DAYS = [
 ];
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
-const LONG_PRESS_MS = 600;
+const NEUTRAL_FILL = "#9aa3b5"; // building marked but no color (tag/comment only)
 
 // ─── State ───────────────────────────────────────────────────────────────────
-let mode = "idle";          // idle | brush | erase | single
+let mode = "idle";          // idle | brush | erase | detail
 let currentDay = 1;
 let currentPeriod = localStorage.getItem("currentPeriod") || "morning";
 let groupId = "";
-let annotations = {};       // building_id → { day, color, comment, tag }
+let annotations = {};       // building_id → { day, period, color, comment, is_attention, is_important }
 let history = [];           // [{id, prev: ann|null}]
-let layersById = new Map(); // id → leaflet layer
+let layersById = new Map();
 let buildingLayer;
 let isPainting = false;
-let touchedThisStroke = new Set(); // dedupe within one swipe
-let longPressTimer = null;
-let longPressFired = false; // suppress click that follows a long-press
+let touchedThisStroke = new Set();
 
 // ─── Map ─────────────────────────────────────────────────────────────────────
 const map = L.map("map", {
@@ -112,7 +110,10 @@ async function loadAnnotations() {
     const data = await fetchAnnotations(groupId);
     annotations = {};
     data.forEach(a => {
-      annotations[a.building_id] = { day: a.day, period: a.period, color: a.color, comment: a.comment, tag: a.tag };
+      annotations[a.building_id] = {
+        day: a.day, period: a.period, color: a.color, comment: a.comment,
+        is_attention: !!a.is_attention, is_important: !!a.is_important
+      };
     });
   } catch (e) {
     console.warn("Could not load annotations:", e.message);
@@ -132,60 +133,42 @@ async function renderBuildings() {
       const id = feature.properties.id;
       layersById.set(id, layer);
       attachLayerHandlers(id, layer);
-      const ann = annotations[id];
-      if (ann?.comment) {
-        layer.bindTooltip("💬", { permanent: true, className: "comment-badge", direction: "center" });
-      }
+      bindBadge(id, layer);
     }
   }).addTo(map);
 }
 
 function attachLayerHandlers(id, layer) {
-  // Single-mode tap: leaflet's click event fires reliably on touch + mouse.
   layer.on("click", () => {
-    if (mode !== "single") return;
-    if (longPressFired) { longPressFired = false; return; }
+    if (mode !== "detail") return;
     if (map.getZoom() < MIN_ZOOM) {
       showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`);
       return;
     }
-    toggleSingle(id);
+    openDetailDialog(id);
   });
-
-  // Long-press: start timer on press, fire dialog after threshold, cancel on move/up.
-  const startPress = () => {
-    if (mode !== "single") return;
-    if (map.getZoom() < MIN_ZOOM) return;
-    cancelLongPress();
-    longPressFired = false;
-    longPressTimer = setTimeout(() => {
-      longPressTimer = null;
-      longPressFired = true;
-      if (navigator.vibrate) navigator.vibrate(20);
-      openCommentDialog(id);
-    }, LONG_PRESS_MS);
-  };
-  layer.on("mousedown", startPress);
-  layer.on("touchstart", startPress);
-  const cancel = () => cancelLongPress();
-  layer.on("mouseup", cancel);
-  layer.on("mouseout", cancel);
-  layer.on("touchend", cancel);
-  layer.on("touchcancel", cancel);
-  layer.on("touchmove", cancel);
 }
 
 function buildingStyle(id) {
   const ann = annotations[id];
-  return {
-    color: "#555",
-    weight: 1.5,
-    fillColor: ann ? ann.color : "#c8c8c8",
-    fillOpacity: ann ? 0.75 : 0.35
-  };
+  if (!ann) return { color: "#555", weight: 1.5, fillColor: "#c8c8c8", fillOpacity: 0.35 };
+  const fill = ann.color || NEUTRAL_FILL;
+  return { color: "#555", weight: 1.5, fillColor: fill, fillOpacity: 0.75 };
 }
 
-// ─── Painting primitives ─────────────────────────────────────────────────────
+function bindBadge(id, layer) {
+  const ann = annotations[id];
+  layer.unbindTooltip();
+  if (!ann) return;
+  const parts = [];
+  if (ann.is_important) parts.push("★");
+  if (ann.is_attention) parts.push("!");
+  if (ann.comment) parts.push("💬");
+  if (parts.length === 0) return;
+  layer.bindTooltip(parts.join(" "), { permanent: true, className: "comment-badge", direction: "center" });
+}
+
+// ─── Brush / Erase ───────────────────────────────────────────────────────────
 function paintBuilding(id) {
   if (touchedThisStroke.has(id)) return;
   touchedThisStroke.add(id);
@@ -198,15 +181,19 @@ function paintBuilding(id) {
   if (existing) return;
 
   const day = DAYS.find(d => d.n === currentDay);
-  const period = currentPeriod;
   history.push({ id, prev: null });
-  annotations[id] = { day: currentDay, period, color: day.color };
+  annotations[id] = {
+    day: currentDay, period: currentPeriod, color: day.color,
+    comment: null, is_attention: false, is_important: false
+  };
   layer.setStyle({ fillColor: day.color, fillOpacity: 0.9 });
   setTimeout(() => layer.setStyle({ fillOpacity: 0.75 }), 120);
   if (navigator.vibrate) navigator.vibrate(8);
 
-  upsertAnnotation({ building_id: id, group_id: groupId, day: currentDay, period, color: day.color })
-    .catch(e => console.warn("upsert failed:", e.message));
+  upsertAnnotation({
+    building_id: id, group_id: groupId,
+    day: currentDay, period: currentPeriod, color: day.color
+  }).catch(e => console.warn("upsert failed:", e.message));
 }
 
 function eraseBuilding(id) {
@@ -216,32 +203,31 @@ function eraseBuilding(id) {
   const layer = layersById.get(id);
   if (!layer) return;
   const existing = annotations[id];
-  // Tag-Sperre: erase nur eigenen Tag
-  if (!existing || existing.day !== currentDay) return;
+  // Tag-Sperre: erase nur eigenen Tag, und nur wenn keine Sondermarkierung/Kommentar dranhängt
+  if (!existing) return;
+  if (existing.day !== currentDay) return;
+  if (!existing.color) return; // nothing to erase
 
   history.push({ id, prev: { ...existing } });
-  delete annotations[id];
-  layer.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
-  layer.unbindTooltip();
-  if (navigator.vibrate) navigator.vibrate(8);
 
-  deleteAnnotation({ building_id: id, group_id: groupId })
-    .catch(e => console.warn("delete failed:", e.message));
-}
-
-function toggleSingle(id) {
-  const existing = annotations[id];
-  if (existing) {
-    if (existing.day !== currentDay) {
-      showToast(`Markiert in Tag ${existing.day} — dort wechseln zum Ändern`);
-      return;
-    }
-    touchedThisStroke.clear();
-    eraseBuilding(id);
+  const stillHasContent = existing.is_attention || existing.is_important || existing.comment;
+  if (stillHasContent) {
+    // Keep the row, just drop the color → neutral fill, tooltip stays.
+    annotations[id] = { ...existing, color: null };
+    layer.setStyle({ fillColor: NEUTRAL_FILL, fillOpacity: 0.75 });
+    upsertAnnotation({
+      building_id: id, group_id: groupId,
+      day: existing.day, period: existing.period, color: null,
+      comment: existing.comment, is_attention: existing.is_attention, is_important: existing.is_important
+    }).catch(e => console.warn("erase upsert failed:", e.message));
   } else {
-    touchedThisStroke.clear();
-    paintBuilding(id);
+    delete annotations[id];
+    layer.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
+    layer.unbindTooltip();
+    deleteAnnotation({ building_id: id, group_id: groupId })
+      .catch(e => console.warn("delete failed:", e.message));
   }
+  if (navigator.vibrate) navigator.vibrate(8);
 }
 
 // ─── Hit testing ─────────────────────────────────────────────────────────────
@@ -259,14 +245,13 @@ function buildingsNearPoint(containerPoint, radiusPx) {
   return hits;
 }
 
-// ─── Touch / mouse ───────────────────────────────────────────────────────────
+// ─── Touch / mouse (brush+erase only) ────────────────────────────────────────
 const mapEl = map.getContainer();
 
 function isEditMode() { return mode !== "idle"; }
+function isBrushMode() { return mode === "brush" || mode === "erase"; }
 
 function applyMapDragPolicy() {
-  // In edit modes: 1-finger drag = paint, 2-finger = pan. We disable Leaflet's
-  // built-in dragging and re-enable it only when 2 fingers are detected.
   if (isEditMode()) map.dragging.disable();
   else map.dragging.enable();
 }
@@ -275,8 +260,6 @@ function clientToContainerPoint(t) {
   const rect = mapEl.getBoundingClientRect();
   return L.point(t.clientX - rect.left, t.clientY - rect.top);
 }
-
-function isBrushMode() { return mode === "brush" || mode === "erase"; }
 
 mapEl.addEventListener("touchstart", (e) => {
   if (!isBrushMode()) return;
@@ -308,9 +291,7 @@ mapEl.addEventListener("touchmove", (e) => {
   paintAtPoint(clientToContainerPoint(e.touches[0]));
 }, { passive: false });
 
-mapEl.addEventListener("touchend", () => {
-  isPainting = false;
-}, { passive: false });
+mapEl.addEventListener("touchend", () => { isPainting = false; }, { passive: false });
 
 function paintAtPoint(containerPoint) {
   const ids = buildingsNearPoint(containerPoint, BRUSH_RADIUS_PX);
@@ -318,43 +299,169 @@ function paintAtPoint(containerPoint) {
   else if (mode === "erase") ids.forEach(eraseBuilding);
 }
 
-function cancelLongPress() {
-  clearTimeout(longPressTimer);
-  longPressTimer = null;
+// ─── Detail dialog ───────────────────────────────────────────────────────────
+function openDetailDialog(id) {
+  const dlg = document.getElementById("detail-dialog");
+  const ann = annotations[id] || null;
+
+  // Local working copy (committed on Save).
+  const draft = {
+    color:        ann?.color ?? null,
+    is_important: ann?.is_important ?? false,
+    is_attention: ann?.is_attention ?? false,
+    comment:      ann?.comment ?? ""
+  };
+
+  // Color buttons (5 options: keine + 4 days).
+  const colorContainer = document.getElementById("detail-colors");
+  colorContainer.innerHTML = "";
+  const noneBtn = document.createElement("button");
+  noneBtn.className = "detail-color none" + (draft.color === null ? " active" : "");
+  noneBtn.textContent = "Keine";
+  noneBtn.addEventListener("click", () => {
+    draft.color = null;
+    refreshColors();
+  });
+  colorContainer.appendChild(noneBtn);
+  DAYS.forEach(d => {
+    const b = document.createElement("button");
+    b.className = "detail-color" + (draft.color === d.color ? " active" : "");
+    b.style.setProperty("--day-color", d.color);
+    b.textContent = d.n;
+    b.addEventListener("click", () => {
+      draft.color = d.color;
+      refreshColors();
+    });
+    colorContainer.appendChild(b);
+  });
+  function refreshColors() {
+    [...colorContainer.children].forEach(child => {
+      const isNone = child.classList.contains("none");
+      const matches = isNone ? draft.color === null : child.style.getPropertyValue("--day-color") === draft.color;
+      child.classList.toggle("active", matches);
+    });
+  }
+
+  // Tag toggles.
+  document.querySelectorAll(".tag-toggle").forEach(btn => {
+    const key = btn.dataset.tag;
+    btn.classList.toggle("active", !!draft[key]);
+    btn.onclick = () => {
+      draft[key] = !draft[key];
+      btn.classList.toggle("active", draft[key]);
+    };
+  });
+
+  // Comment.
+  const ta = document.getElementById("detail-comment");
+  ta.value = draft.comment;
+
+  dlg.classList.remove("hidden");
+
+  // Save.
+  document.getElementById("detail-save").onclick = () => {
+    draft.comment = ta.value.trim();
+    saveDetail(id, ann, draft);
+    dlg.classList.add("hidden");
+  };
+  document.getElementById("detail-cancel").onclick = () => dlg.classList.add("hidden");
 }
 
-function openCommentDialog(id) {
+function saveDetail(id, prev, draft) {
+  const empty = !draft.color && !draft.is_attention && !draft.is_important && !draft.comment;
   const layer = layersById.get(id);
-  const existing = annotations[id]?.comment || "";
-  const dlg = document.getElementById("comment-dialog");
-  document.getElementById("comment-input").value = existing;
-  document.getElementById("comment-building-id").textContent = id;
+
+  history.push({ id, prev: prev ? { ...prev } : null });
+
+  if (empty) {
+    delete annotations[id];
+    layer?.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
+    layer?.unbindTooltip();
+    deleteAnnotation({ building_id: id, group_id: groupId })
+      .catch(e => console.warn("delete failed:", e.message));
+    return;
+  }
+
+  // Pick a day for the row: use existing if available, else currentDay.
+  const day = prev?.day ?? currentDay;
+  const period = prev?.period ?? currentPeriod;
+
+  const next = {
+    day, period,
+    color: draft.color,
+    comment: draft.comment || null,
+    is_attention: !!draft.is_attention,
+    is_important: !!draft.is_important
+  };
+  annotations[id] = next;
+
+  const fill = next.color || NEUTRAL_FILL;
+  layer?.setStyle({ fillColor: fill, fillOpacity: 0.75 });
+  bindBadge(id, layer);
+  if (navigator.vibrate) navigator.vibrate(10);
+
+  upsertAnnotation({
+    building_id: id, group_id: groupId,
+    day: next.day, period: next.period,
+    color: next.color, comment: next.comment,
+    is_attention: next.is_attention, is_important: next.is_important
+  }).catch(e => console.warn("upsert failed:", e.message));
+}
+
+// ─── Amount dialog ───────────────────────────────────────────────────────────
+function parseEuros(text) {
+  const cleaned = text.replace(/\s|€/g, "").replace(",", ".");
+  if (!cleaned) return 0;
+  const n = parseFloat(cleaned);
+  if (!isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+function formatEuros(cents) {
+  if (!cents) return "";
+  return (cents / 100).toFixed(2).replace(".", ",");
+}
+
+async function openAmountDialog() {
+  if (!groupId) { showToast("Erst Gruppe wählen"); return; }
+  const dlg = document.getElementById("amount-dialog");
+  const ctx = document.getElementById("amount-context");
+  const inp = document.getElementById("amount-input");
+  const notes = document.getElementById("amount-notes");
+
+  ctx.textContent = `${groupId} · Tag ${currentDay} · ${currentPeriod === "morning" ? "Vor Mittag" : "Nach Mittag"}`;
+  inp.value = "";
+  notes.value = "";
+
   dlg.classList.remove("hidden");
-  document.getElementById("comment-input").focus();
 
-  document.getElementById("comment-save").onclick = () => {
-    const text = document.getElementById("comment-input").value.trim();
-    if (!annotations[id]) {
-      const day = DAYS.find(d => d.n === currentDay);
-      annotations[id] = { day: currentDay, period: currentPeriod, color: day.color };
-      layer?.setStyle({ fillColor: day.color, fillOpacity: 0.75 });
-    }
-    annotations[id].comment = text || null;
+  // Load current value in background (don't block).
+  fetchGroupAmount({ group_id: groupId, day: currentDay, period: currentPeriod })
+    .then(row => {
+      if (!row) return;
+      inp.value = formatEuros(row.amount_cents);
+      notes.value = row.notes || "";
+    })
+    .catch(e => console.warn("amount load failed:", e.message));
 
-    const ann = annotations[id];
-    if (text) {
-      upsertAnnotation({ building_id: id, group_id: groupId, day: ann.day, period: ann.period, color: ann.color, comment: text })
-        .catch(e => console.warn("comment upsert failed:", e.message));
-      layer?.bindTooltip("💬", { permanent: true, className: "comment-badge", direction: "center" });
-    } else {
-      patchComment({ building_id: id, group_id: groupId, comment: null })
-        .catch(e => console.warn("comment patch failed:", e.message));
-      layer?.unbindTooltip();
+  document.getElementById("amount-save").onclick = async () => {
+    const cents = parseEuros(inp.value);
+    if (cents === null) { showToast("Ungültiger Betrag"); return; }
+    try {
+      await upsertGroupAmount({
+        group_id: groupId, day: currentDay, period: currentPeriod,
+        amount_cents: cents, notes: notes.value.trim() || null
+      });
+      showToast("Gespeichert");
+    } catch (e) {
+      showToast("Fehler: " + e.message);
+      return;
     }
     dlg.classList.add("hidden");
   };
-  document.getElementById("comment-cancel").onclick = () => dlg.classList.add("hidden");
+  document.getElementById("amount-cancel").onclick = () => dlg.classList.add("hidden");
 }
+
+document.getElementById("amount-btn").addEventListener("click", openAmountDialog);
 
 // ─── Undo ────────────────────────────────────────────────────────────────────
 function undo() {
@@ -365,17 +472,23 @@ function undo() {
   if (!prev) {
     delete annotations[id];
     layer?.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
+    layer?.unbindTooltip();
     deleteAnnotation({ building_id: id, group_id: groupId }).catch(() => {});
   } else {
     annotations[id] = { ...prev };
-    layer?.setStyle({ fillColor: prev.color, fillOpacity: 0.75 });
-    upsertAnnotation({ building_id: id, group_id: groupId, day: prev.day, period: prev.period, color: prev.color, comment: prev.comment, tag: prev.tag })
-      .catch(() => {});
+    const fill = prev.color || NEUTRAL_FILL;
+    layer?.setStyle({ fillColor: fill, fillOpacity: 0.75 });
+    bindBadge(id, layer);
+    upsertAnnotation({
+      building_id: id, group_id: groupId,
+      day: prev.day, period: prev.period, color: prev.color,
+      comment: prev.comment, is_attention: prev.is_attention, is_important: prev.is_important
+    }).catch(() => {});
   }
   if (navigator.vibrate) navigator.vibrate([5, 30, 5]);
 }
 
-// ─── Mode buttons ────────────────────────────────────────────────────────────
+// ─── UI controls ─────────────────────────────────────────────────────────────
 document.querySelectorAll(".mode-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     mode = btn.dataset.mode;
@@ -388,8 +501,7 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
 document.getElementById("undo-btn").addEventListener("click", undo);
 
 document.querySelectorAll(".period-btn").forEach(btn => {
-  if (btn.dataset.period === currentPeriod) btn.classList.add("active");
-  else btn.classList.remove("active");
+  btn.classList.toggle("active", btn.dataset.period === currentPeriod);
   btn.addEventListener("click", () => {
     currentPeriod = btn.dataset.period;
     localStorage.setItem("currentPeriod", currentPeriod);
@@ -398,13 +510,11 @@ document.querySelectorAll(".period-btn").forEach(btn => {
   });
 });
 
-// ─── Zoom warning ────────────────────────────────────────────────────────────
 map.on("zoom", () => {
   const w = document.getElementById("zoom-warning");
   w.classList.toggle("hidden", map.getZoom() >= MIN_ZOOM || !isEditMode());
 });
 
-// ─── Toast ───────────────────────────────────────────────────────────────────
 function showToast(msg) {
   const t = document.getElementById("toast");
   t.textContent = msg;
@@ -413,9 +523,7 @@ function showToast(msg) {
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
-window.addEventListener("load", () => {
-  if (window.lucide) lucide.createIcons();
-});
+window.addEventListener("load", () => { if (window.lucide) lucide.createIcons(); });
 renderDayPicker();
 renderGroupList();
 setupGroup();

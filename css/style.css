@@ -319,6 +319,89 @@ body.edit-mode #map { cursor: crosshair; }
   outline: none;
 }
 
+/* ── DETAIL DIALOG ── */
+.detail-section {
+  margin-bottom: 14px;
+}
+.detail-section label {
+  display: block;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.detail-colors {
+  display: flex;
+  gap: 6px;
+}
+.detail-color {
+  flex: 1;
+  height: 36px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background: var(--day-color, var(--bg));
+  color: #fff;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.detail-color.none {
+  background: var(--bg);
+  color: var(--muted);
+  border-color: var(--border);
+}
+.detail-color.active {
+  border-color: #fff;
+  transform: scale(1.05);
+}
+.detail-color.none.active { border-color: var(--accent); color: var(--text); }
+
+.detail-tags {
+  display: flex;
+  gap: 8px;
+}
+.tag-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.tag-toggle svg { width: 16px; height: 16px; }
+.tag-toggle.active {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+/* ── AMOUNT DIALOG ── */
+.amount-label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.amount-label input,
+.amount-label textarea {
+  margin-top: 4px;
+}
+.amount-label textarea {
+  resize: none;
+  height: 60px;
+}
+
 /* ── TOP HUD ── */
 #top-hud {
   position: fixed;
@@ -327,8 +410,25 @@ body.edit-mode #map { cursor: crosshair; }
   z-index: 1000;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
+
+#amount-btn, #dashboard-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color 0.15s;
+}
+#amount-btn:hover, #dashboard-link:hover { border-color: var(--accent); }
+#amount-btn svg, #dashboard-link svg { width: 16px; height: 16px; }
 
 #group-chip {
   display: flex;
