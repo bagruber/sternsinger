@@ -21,15 +21,11 @@ const DAYS = [
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
 const LONG_PRESS_MS = 600;
-const PERIOD_CUTOFF_HOUR = 13;
-
-function currentPeriod() {
-  return new Date().getHours() < PERIOD_CUTOFF_HOUR ? "morning" : "afternoon";
-}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let mode = "idle";          // idle | brush | erase | single
 let currentDay = 1;
+let currentPeriod = localStorage.getItem("currentPeriod") || "morning";
 let groupId = "";
 let annotations = {};       // building_id → { day, color, comment, tag }
 let history = [];           // [{id, prev: ann|null}]
@@ -202,7 +198,7 @@ function paintBuilding(id) {
   if (existing) return;
 
   const day = DAYS.find(d => d.n === currentDay);
-  const period = currentPeriod();
+  const period = currentPeriod;
   history.push({ id, prev: null });
   annotations[id] = { day: currentDay, period, color: day.color };
   layer.setStyle({ fillColor: day.color, fillOpacity: 0.9 });
@@ -340,7 +336,7 @@ function openCommentDialog(id) {
     const text = document.getElementById("comment-input").value.trim();
     if (!annotations[id]) {
       const day = DAYS.find(d => d.n === currentDay);
-      annotations[id] = { day: currentDay, period: currentPeriod(), color: day.color };
+      annotations[id] = { day: currentDay, period: currentPeriod, color: day.color };
       layer?.setStyle({ fillColor: day.color, fillOpacity: 0.75 });
     }
     annotations[id].comment = text || null;
@@ -390,6 +386,17 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
   });
 });
 document.getElementById("undo-btn").addEventListener("click", undo);
+
+document.querySelectorAll(".period-btn").forEach(btn => {
+  if (btn.dataset.period === currentPeriod) btn.classList.add("active");
+  else btn.classList.remove("active");
+  btn.addEventListener("click", () => {
+    currentPeriod = btn.dataset.period;
+    localStorage.setItem("currentPeriod", currentPeriod);
+    document.querySelectorAll(".period-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+  });
+});
 
 // ─── Zoom warning ────────────────────────────────────────────────────────────
 map.on("zoom", () => {

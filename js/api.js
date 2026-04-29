@@ -44,6 +44,23 @@ export async function patchComment({ building_id, group_id, comment }) {
   if (!res.ok) throw new Error(`patchComment failed: ${res.status}`);
 }
 
+export async function fetchAllGroupAmounts() {
+  const url = `${SUPABASE_URL}/rest/v1/group_amounts?select=group_id,day,period,amount_cents,notes,updated_at`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error(`fetchAllGroupAmounts failed: ${res.status}`);
+  return res.json();
+}
+
+export async function upsertGroupAmount({ group_id, day, period, amount_cents, notes = null }) {
+  const url = `${SUPABASE_URL}/rest/v1/group_amounts`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ group_id, day, period, amount_cents, notes })
+  });
+  if (!res.ok) throw new Error(`upsertGroupAmount failed: ${res.status}`);
+}
+
 export async function deleteAnnotation({ building_id, group_id }) {
   const url = `${SUPABASE_URL}/rest/v1/annotations?building_id=eq.${encodeURIComponent(building_id)}&group_id=eq.${encodeURIComponent(group_id)}`;
   const res = await fetch(url, { method: "DELETE", headers: headers() });

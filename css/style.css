@@ -134,6 +134,37 @@ html, body {
   transform: scale(1.1);
 }
 
+/* ── PERIOD TOGGLE ── */
+#period-toggle {
+  display: flex;
+  background: var(--bg);
+  padding: 4px;
+  border-radius: 12px;
+  gap: 2px;
+}
+
+.period-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.period-btn svg { width: 14px; height: 14px; }
+
+.period-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* ── UNDO BUTTON ── */
 #undo-btn {
   display: flex;
@@ -158,6 +189,15 @@ html, body {
 
 /* Visual cue while in edit mode */
 body.edit-mode #map { cursor: crosshair; }
+
+/* Suppress iOS magnifier / text-selection on long-press of buildings */
+.leaflet-container,
+.leaflet-interactive,
+.leaflet-control-zoom a {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
 
 #undo-btn:hover {
   background: var(--border);
