@@ -9,11 +9,10 @@
   <meta name="theme-color" content="#0f1117" />
   <title>Gebäude-Marker</title>
 
-  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js" defer></script>
 
-  <!-- App styles -->
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -37,28 +36,32 @@
 <!-- ── BOTTOM BAR ─────────────────────────────────────────────── -->
 <div id="bottom-bar">
 
-  <!-- Color picker -->
-  <div id="color-picker"></div>
+  <!-- Day picker -->
+  <div id="day-picker"></div>
 
   <!-- Mode buttons -->
   <div class="mode-group">
-    <button class="mode-btn active" data-mode="brush" title="Malen">
-      🖌️
+    <button class="mode-btn active" data-mode="idle" title="Navigieren">
+      <i data-lucide="hand"></i>
+      <span class="label">Nav</span>
+    </button>
+    <button class="mode-btn" data-mode="brush" title="Malen">
+      <i data-lucide="paintbrush-2"></i>
       <span class="label">Malen</span>
     </button>
     <button class="mode-btn" data-mode="erase" title="Löschen">
-      🧹
+      <i data-lucide="eraser"></i>
       <span class="label">Löschen</span>
     </button>
     <button class="mode-btn" data-mode="single" title="Einzeln">
-      ☝️
+      <i data-lucide="mouse-pointer-click"></i>
       <span class="label">Einzeln</span>
     </button>
   </div>
 
   <!-- Undo -->
   <button id="undo-btn" title="Rückgängig">
-    ↩️
+    <i data-lucide="undo-2"></i>
     <span class="label">Undo</span>
   </button>
 
@@ -89,7 +92,6 @@
 <!-- ── TOAST ──────────────────────────────────────────────────── -->
 <div id="toast"></div>
 
-<!-- ── APP ───────────────────────────────────────────────────── -->
 <script type="module" src="js/app.js"></script>
 
 </body>
