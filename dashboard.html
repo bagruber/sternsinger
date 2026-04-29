@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f1117" />
+  <title>Dashboard – Gebäude-Marker</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js" defer></script>
+
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/dashboard.css" />
+</head>
+<body class="dashboard">
+
+<header id="dash-header">
+  <div class="dash-title">
+    <a href="index.html" class="back-link" title="Zur App">
+      <i data-lucide="arrow-left"></i>
+    </a>
+    <h1>Dashboard</h1>
+  </div>
+  <div id="dash-summary"></div>
+</header>
+
+<aside id="dash-filters">
+  <div class="filter-group">
+    <label>Tag</label>
+    <div class="filter-pills" id="filter-day"></div>
+  </div>
+  <div class="filter-group">
+    <label>Gruppe</label>
+    <div class="filter-pills" id="filter-group"></div>
+  </div>
+  <div class="filter-group">
+    <label>Zeitraum</label>
+    <div class="filter-pills" id="filter-period"></div>
+  </div>
+</aside>
+
+<main id="dash-main">
+  <section id="dash-map-wrap">
+    <div id="map"></div>
+  </section>
+  <section id="dash-stats">
+    <div class="stat-block" id="stats-by-group">
+      <h2>Pro Gruppe</h2>
+      <table></table>
+    </div>
+    <div class="stat-block" id="stats-by-day">
+      <h2>Pro Tag</h2>
+      <table></table>
+    </div>
+    <div class="stat-block" id="stats-by-period">
+      <h2>Vor / Nach Mittag</h2>
+      <table></table>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="js/dashboard.js"></script>
+</body>
+</html>
