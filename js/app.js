@@ -3,11 +3,13 @@ import { fetchAnnotations, upsertAnnotation, deleteAnnotation, patchComment } fr
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const GROUPS = [
+  "Stadt",
+  "Feldkirchner Au",
   "Neustadt I",
   "Neustadt II",
   "Bonau",
   "Westerberg",
-  "Amperauen",
+  "Oberes Gereuth",
   "Unteres Gereuth"
 ];
 const DAYS = [
