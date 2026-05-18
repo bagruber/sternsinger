@@ -41,6 +41,16 @@ create table group_amounts (
 
 create index if not exists idx_group_amounts_group on group_amounts(group_id);
 
+drop table if exists building_assignments;
+
+create table building_assignments (
+  building_id text primary key,
+  group_id    text not null,
+  updated_at  timestamp default now()
+);
+
+create index if not exists idx_building_assignments_group on building_assignments(group_id);
+
 create or replace function update_updated_at()
 returns trigger as $$
 begin
@@ -59,11 +69,17 @@ create trigger group_amounts_updated_at
   before update on group_amounts
   for each row execute function update_updated_at();
 
+drop trigger if exists building_assignments_updated_at on building_assignments;
+create trigger building_assignments_updated_at
+  before update on building_assignments
+  for each row execute function update_updated_at();
+
 -- ============================================================
 -- Row Level Security — MVP: offen für anon. Vor Produktion härten.
 -- ============================================================
 alter table annotations  enable row level security;
 alter table group_amounts enable row level security;
+alter table building_assignments enable row level security;
 
 drop policy if exists "anon read annotations"  on annotations;
 drop policy if exists "anon write annotations" on annotations;
@@ -74,3 +90,8 @@ drop policy if exists "anon read group_amounts"  on group_amounts;
 drop policy if exists "anon write group_amounts" on group_amounts;
 create policy "anon read group_amounts"  on group_amounts for select using (true);
 create policy "anon write group_amounts" on group_amounts for all    using (true);
+
+drop policy if exists "anon read building_assignments"  on building_assignments;
+drop policy if exists "anon write building_assignments" on building_assignments;
+create policy "anon read building_assignments"  on building_assignments for select using (true);
+create policy "anon write building_assignments" on building_assignments for all    using (true);

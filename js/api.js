@@ -63,6 +63,29 @@ export async function upsertGroupAmount({ group_id, day, period, amount_cents, n
   if (!res.ok) throw new Error(`upsertGroupAmount failed: ${res.status}`);
 }
 
+export async function fetchAllAssignments() {
+  const url = `${SUPABASE_URL}/rest/v1/building_assignments?select=building_id,group_id,updated_at`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error(`fetchAllAssignments failed: ${res.status}`);
+  return res.json();
+}
+
+export async function upsertAssignment({ building_id, group_id }) {
+  const url = `${SUPABASE_URL}/rest/v1/building_assignments`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ building_id, group_id })
+  });
+  if (!res.ok) throw new Error(`upsertAssignment failed: ${res.status}`);
+}
+
+export async function deleteAssignment({ building_id }) {
+  const url = `${SUPABASE_URL}/rest/v1/building_assignments?building_id=eq.${encodeURIComponent(building_id)}`;
+  const res = await fetch(url, { method: "DELETE", headers: headers() });
+  if (!res.ok) throw new Error(`deleteAssignment failed: ${res.status}`);
+}
+
 export async function deleteAnnotation({ building_id, group_id }) {
   const url = `${SUPABASE_URL}/rest/v1/annotations?building_id=eq.${encodeURIComponent(building_id)}&group_id=eq.${encodeURIComponent(group_id)}`;
   const res = await fetch(url, { method: "DELETE", headers: headers() });

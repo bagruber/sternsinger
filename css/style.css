@@ -413,7 +413,7 @@ body.edit-mode #map { cursor: crosshair; }
   gap: 6px;
 }
 
-#amount-btn, #dashboard-link {
+#amount-btn, #dashboard-link, #home-link, #admin-link {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -427,8 +427,8 @@ body.edit-mode #map { cursor: crosshair; }
   text-decoration: none;
   transition: border-color 0.15s;
 }
-#amount-btn:hover, #dashboard-link:hover { border-color: var(--accent); }
-#amount-btn svg, #dashboard-link svg { width: 16px; height: 16px; }
+#amount-btn:hover, #dashboard-link:hover, #home-link:hover, #admin-link:hover { border-color: var(--accent); }
+#amount-btn svg, #dashboard-link svg, #home-link svg, #admin-link svg { width: 16px; height: 16px; }
 
 #group-chip {
   display: flex;
@@ -490,6 +490,54 @@ body.edit-mode #map { cursor: crosshair; }
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── ADMIN: group palette ── */
+#group-palette {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  background: var(--bg);
+  padding: 4px;
+  border-radius: 12px;
+  justify-content: center;
+}
+.group-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--swatch-color, var(--border));
+  background: transparent;
+  color: var(--swatch-color, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.group-swatch.active {
+  background: var(--swatch-color);
+  color: #fff;
+  transform: scale(1.12);
+}
+
+/* ── ADMIN: chip ── */
+#admin-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--chip-color, var(--border));
+  border-radius: 99px;
+  padding: 5px 12px 5px 8px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text);
+}
+#admin-chip svg { width: 14px; height: 14px; color: var(--chip-color, var(--muted)); }
 
 /* ── COMMENT BADGE (Leaflet tooltip) ── */
 .comment-badge {

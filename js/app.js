@@ -1,17 +1,7 @@
 // js/app.js
-import { fetchAnnotations, upsertAnnotation, deleteAnnotation, fetchGroupAmount, upsertGroupAmount } from "./api.js";
+import { fetchAnnotations, upsertAnnotation, deleteAnnotation, fetchGroupAmount, upsertGroupAmount, fetchAllAssignments } from "./api.js";
+import { GROUP_NAMES as GROUPS } from "./groups.js";
 
-// ─── Config ──────────────────────────────────────────────────────────────────
-const GROUPS = [
-  "Stadt",
-  "Feldkirchner Au",
-  "Neustadt I",
-  "Neustadt II",
-  "Bonau",
-  "Westerberg",
-  "Oberes Gereuth",
-  "Unteres Gereuth"
-];
 const DAYS = [
   { n: 1, color: "#e74c3c", label: "Tag 1" },
   { n: 2, color: "#e67e22", label: "Tag 2" },
@@ -28,6 +18,7 @@ let currentDay = 1;
 let currentPeriod = localStorage.getItem("currentPeriod") || "morning";
 let groupId = "";
 let annotations = {};       // building_id → { day, period, color, comment, is_attention, is_important }
+let assignments = {};       // building_id → group_id (territory)
 let history = [];           // [{id, prev: ann|null}]
 let layersById = new Map();
 let buildingLayer;
@@ -107,7 +98,10 @@ function renderDayPicker() {
 async function loadAnnotations() {
   if (!groupId) return;
   try {
-    const data = await fetchAnnotations(groupId);
+    const [data, assignRows] = await Promise.all([
+      fetchAnnotations(groupId),
+      fetchAllAssignments().catch(e => { console.warn("assignments load failed:", e.message); return []; })
+    ]);
     annotations = {};
     data.forEach(a => {
       annotations[a.building_id] = {
@@ -115,6 +109,8 @@ async function loadAnnotations() {
         is_attention: !!a.is_attention, is_important: !!a.is_important
       };
     });
+    assignments = {};
+    assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
   } catch (e) {
     console.warn("Could not load annotations:", e.message);
   }
@@ -151,7 +147,20 @@ function attachLayerHandlers(id, layer) {
 
 function buildingStyle(id) {
   const ann = annotations[id];
-  if (!ann) return { color: "#555", weight: 1.5, fillColor: "#c8c8c8", fillOpacity: 0.35 };
+  const assigned = assignments[id];
+  const isOtherGroup = assigned && assigned !== groupId;
+
+  if (isOtherGroup && !ann) {
+    // Other group's territory, no own mark: greyed out silhouette.
+    return { color: "#3a3d4a", weight: 0.5, fillColor: "#5a5f70", fillOpacity: 0.18 };
+  }
+
+  if (!ann) {
+    // Own territory or unassigned: highlight own slightly.
+    const fillColor = assigned === groupId ? "#dfe4f0" : "#c8c8c8";
+    const fillOpacity = assigned === groupId ? 0.45 : 0.3;
+    return { color: "#555", weight: 1.5, fillColor, fillOpacity };
+  }
   const fill = ann.color || NEUTRAL_FILL;
   return { color: "#555", weight: 1.5, fillColor: fill, fillOpacity: 0.75 };
 }
@@ -222,7 +231,7 @@ function eraseBuilding(id) {
     }).catch(e => console.warn("erase upsert failed:", e.message));
   } else {
     delete annotations[id];
-    layer.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
+    layer.setStyle(buildingStyle(id));
     layer.unbindTooltip();
     deleteAnnotation({ building_id: id, group_id: groupId })
       .catch(e => console.warn("delete failed:", e.message));
@@ -375,7 +384,7 @@ function saveDetail(id, prev, draft) {
 
   if (empty) {
     delete annotations[id];
-    layer?.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
+    if (layer) layer.setStyle(buildingStyle(id));
     layer?.unbindTooltip();
     deleteAnnotation({ building_id: id, group_id: groupId })
       .catch(e => console.warn("delete failed:", e.message));
@@ -471,7 +480,7 @@ function undo() {
   const layer = layersById.get(id);
   if (!prev) {
     delete annotations[id];
-    layer?.setStyle({ fillColor: "#c8c8c8", fillOpacity: 0.35 });
+    if (layer) layer.setStyle(buildingStyle(id));
     layer?.unbindTooltip();
     deleteAnnotation({ building_id: id, group_id: groupId }).catch(() => {});
   } else {

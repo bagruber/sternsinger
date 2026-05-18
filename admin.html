@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0f1117" />
+  <title>Admin · Gebiete</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js" defer></script>
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="admin">
+
+<div id="map"></div>
+
+<!-- TOP HUD -->
+<div id="top-hud">
+  <div id="admin-chip" title="Admin-Modus">
+    <i data-lucide="shield"></i>
+    <span>Gebiete</span>
+  </div>
+  <a id="home-link" href="index.html" title="Zur Gruppen-App">
+    <i data-lucide="map"></i>
+  </a>
+</div>
+
+<div id="zoom-warning" class="hidden">
+  Bitte näher heranzoomen zum Markieren
+</div>
+
+<!-- BOTTOM BAR -->
+<div id="bottom-bar">
+
+  <div class="bar-row bar-row-top">
+    <div id="group-palette"></div>
+  </div>
+
+  <div class="bar-row bar-row-bottom">
+    <div class="mode-group">
+      <button class="mode-btn active" data-mode="idle" title="Navigieren">
+        <i data-lucide="hand"></i>
+        <span class="label">Nav</span>
+      </button>
+      <button class="mode-btn" data-mode="brush" title="Zuweisen">
+        <i data-lucide="paintbrush-2"></i>
+        <span class="label">Zuweisen</span>
+      </button>
+      <button class="mode-btn" data-mode="erase" title="Entfernen">
+        <i data-lucide="eraser"></i>
+        <span class="label">Entf.</span>
+      </button>
+    </div>
+
+    <button id="undo-btn" title="Rückgängig">
+      <i data-lucide="undo-2"></i>
+      <span class="label">Undo</span>
+    </button>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script type="module" src="js/admin.js"></script>
+
+</body>
+</html>
