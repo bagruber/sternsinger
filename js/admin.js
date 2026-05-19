@@ -1,6 +1,10 @@
-// js/admin.js — assign buildings to groups (territories).
+// js/admin.js — assign buildings to groups (territories) + cross-group access.
 import { GROUPS, GROUP_COLOR } from "./groups.js";
-import { fetchAllAssignments, upsertAssignment, deleteAssignment } from "./api.js";
+import {
+  fetchAllAssignments, upsertAssignment, deleteAssignment,
+  fetchAllGroupAccess, upsertGroupAccess, deleteGroupAccess
+} from "./api.js";
+import { buildingsNearPoint } from "./map-util.js";
 
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
@@ -9,6 +13,7 @@ const UNASSIGNED_FILL = "#c8c8c8";
 let mode = "idle";              // idle | brush | erase
 let currentGroup = localStorage.getItem("adminCurrentGroup") || GROUPS[0].id;
 let assignments = {};           // building_id → group_id
+let access = {};                // group_id → Set<granted_group_id>
 let history = [];               // [{ id, prev: group_id|null }]
 let layersById = new Map();
 let buildingLayer;
@@ -45,6 +50,7 @@ function renderGroupPalette() {
       document.querySelectorAll(".group-swatch").forEach(x => x.classList.remove("active"));
       b.classList.add("active");
       updateGroupChipLabel();
+      renderAccessRow();
     });
     c.appendChild(b);
   });
@@ -57,16 +63,66 @@ function updateGroupChipLabel() {
   chip.style.setProperty("--chip-color", GROUP_COLOR[currentGroup] || "#888");
 }
 
-// ─── Data ───
-async function loadAssignments() {
+// ─── Access row (cross-group sharing) ───
+function ensureAccessSet(groupId) {
+  if (!access[groupId]) access[groupId] = new Set();
+  return access[groupId];
+}
+
+function renderAccessRow() {
+  const c = document.getElementById("access-row");
+  c.innerHTML = "";
+  const granted = ensureAccessSet(currentGroup);
+  GROUPS.forEach(g => {
+    if (g.id === currentGroup) return; // skip self
+    const b = document.createElement("button");
+    const on = granted.has(g.id);
+    b.className = "access-chip" + (on ? " active" : "");
+    b.style.setProperty("--swatch-color", g.color);
+    b.title = `${currentGroup} darf auch ${g.id} bearbeiten`;
+    b.textContent = g.id.charAt(0);
+    b.addEventListener("click", () => toggleAccess(g.id, b));
+    c.appendChild(b);
+  });
+}
+
+async function toggleAccess(targetGroupId, btn) {
+  const granted = ensureAccessSet(currentGroup);
+  const willEnable = !granted.has(targetGroupId);
+  // optimistic
+  if (willEnable) granted.add(targetGroupId); else granted.delete(targetGroupId);
+  btn.classList.toggle("active", willEnable);
   try {
-    const rows = await fetchAllAssignments();
-    assignments = {};
-    rows.forEach(r => { assignments[r.building_id] = r.group_id; });
+    if (willEnable) {
+      await upsertGroupAccess({ group_id: currentGroup, granted_group_id: targetGroupId });
+    } else {
+      await deleteGroupAccess({ group_id: currentGroup, granted_group_id: targetGroupId });
+    }
   } catch (e) {
-    console.warn("Could not load assignments:", e.message);
+    // revert
+    if (willEnable) granted.delete(targetGroupId); else granted.add(targetGroupId);
+    btn.classList.toggle("active", !willEnable);
+    showToast("Speichern fehlgeschlagen: " + e.message);
   }
-  renderBuildings();
+}
+
+// ─── Data ───
+async function loadAll() {
+  try {
+    const [assignRows, accessRows] = await Promise.all([
+      fetchAllAssignments(),
+      fetchAllGroupAccess().catch(e => { console.warn("access load failed:", e.message); return []; })
+    ]);
+    assignments = {};
+    assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
+    access = {};
+    accessRows.forEach(r => ensureAccessSet(r.group_id).add(r.granted_group_id));
+  } catch (e) {
+    console.warn("Could not load admin data:", e.message);
+    showToast("Konnte Daten nicht laden — Schema-Migration angewandt?");
+  }
+  renderAccessRow();
+  await renderBuildings();
 }
 
 async function renderBuildings() {
@@ -92,7 +148,7 @@ function buildingStyle(id) {
 }
 
 // ─── Assign / Unassign ───
-function assignBuilding(id) {
+async function assignBuilding(id) {
   if (touchedThisStroke.has(id)) return;
   touchedThisStroke.add(id);
 
@@ -107,7 +163,10 @@ function assignBuilding(id) {
   if (navigator.vibrate) navigator.vibrate(8);
 
   upsertAssignment({ building_id: id, group_id: currentGroup })
-    .catch(e => console.warn("assign upsert failed:", e.message));
+    .catch(e => {
+      console.warn("assign upsert failed:", e.message);
+      showToast("Speichern fehlgeschlagen — Schema-Migration angewandt?");
+    });
 }
 
 function unassignBuilding(id) {
@@ -126,21 +185,6 @@ function unassignBuilding(id) {
 
   deleteAssignment({ building_id: id })
     .catch(e => console.warn("assign delete failed:", e.message));
-}
-
-// ─── Hit testing ───
-function buildingsNearPoint(containerPoint, radiusPx) {
-  const hits = [];
-  const bounds = map.getBounds();
-  layersById.forEach((layer, id) => {
-    if (!bounds.intersects(layer.getBounds())) return;
-    const center = layer.getBounds().getCenter();
-    const cp = map.latLngToContainerPoint(center);
-    const dx = cp.x - containerPoint.x;
-    const dy = cp.y - containerPoint.y;
-    if (dx * dx + dy * dy <= radiusPx * radiusPx) hits.push(id);
-  });
-  return hits;
 }
 
 // ─── Touch / mouse ───
@@ -177,22 +221,23 @@ mapEl.addEventListener("touchmove", (e) => {
 
 mapEl.addEventListener("touchend", () => { isPainting = false; }, { passive: false });
 
-// Mouse support (desktop).
 mapEl.addEventListener("mousedown", (e) => {
   if (!isBrushMode()) return;
   if (map.getZoom() < MIN_ZOOM) { showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`); return; }
   isPainting = true;
   touchedThisStroke = new Set();
-  paintAtPoint(L.point(e.clientX - mapEl.getBoundingClientRect().left, e.clientY - mapEl.getBoundingClientRect().top));
+  const rect = mapEl.getBoundingClientRect();
+  paintAtPoint(L.point(e.clientX - rect.left, e.clientY - rect.top));
 });
 mapEl.addEventListener("mousemove", (e) => {
   if (!isPainting || !isBrushMode()) return;
-  paintAtPoint(L.point(e.clientX - mapEl.getBoundingClientRect().left, e.clientY - mapEl.getBoundingClientRect().top));
+  const rect = mapEl.getBoundingClientRect();
+  paintAtPoint(L.point(e.clientX - rect.left, e.clientY - rect.top));
 });
 window.addEventListener("mouseup", () => { isPainting = false; });
 
 function paintAtPoint(containerPoint) {
-  const ids = buildingsNearPoint(containerPoint, BRUSH_RADIUS_PX);
+  const ids = buildingsNearPoint(map, layersById, containerPoint, BRUSH_RADIUS_PX);
   if (mode === "brush") ids.forEach(assignBuilding);
   else if (mode === "erase") ids.forEach(unassignBuilding);
 }
@@ -241,5 +286,5 @@ function showToast(msg) {
 // ─── Boot ───
 window.addEventListener("load", () => { if (window.lucide) lucide.createIcons(); });
 renderGroupPalette();
-loadAssignments();
+loadAll();
 applyMapDragPolicy();

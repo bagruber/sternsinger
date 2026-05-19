@@ -86,6 +86,31 @@ export async function deleteAssignment({ building_id }) {
   if (!res.ok) throw new Error(`deleteAssignment failed: ${res.status}`);
 }
 
+export async function fetchAllGroupAccess() {
+  const url = `${SUPABASE_URL}/rest/v1/group_access?select=group_id,granted_group_id`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) throw new Error(`fetchAllGroupAccess failed: ${res.status}`);
+  return res.json();
+}
+
+export async function upsertGroupAccess({ group_id, granted_group_id }) {
+  const url = `${SUPABASE_URL}/rest/v1/group_access`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ group_id, granted_group_id })
+  });
+  if (!res.ok) throw new Error(`upsertGroupAccess failed: ${res.status}`);
+}
+
+export async function deleteGroupAccess({ group_id, granted_group_id }) {
+  const url = `${SUPABASE_URL}/rest/v1/group_access`
+    + `?group_id=eq.${encodeURIComponent(group_id)}`
+    + `&granted_group_id=eq.${encodeURIComponent(granted_group_id)}`;
+  const res = await fetch(url, { method: "DELETE", headers: headers() });
+  if (!res.ok) throw new Error(`deleteGroupAccess failed: ${res.status}`);
+}
+
 export async function deleteAnnotation({ building_id, group_id }) {
   const url = `${SUPABASE_URL}/rest/v1/annotations?building_id=eq.${encodeURIComponent(building_id)}&group_id=eq.${encodeURIComponent(group_id)}`;
   const res = await fetch(url, { method: "DELETE", headers: headers() });

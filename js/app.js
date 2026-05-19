@@ -1,6 +1,11 @@
 // js/app.js
-import { fetchAnnotations, upsertAnnotation, deleteAnnotation, fetchGroupAmount, upsertGroupAmount, fetchAllAssignments } from "./api.js";
+import {
+  fetchAllAnnotations, upsertAnnotation, deleteAnnotation,
+  fetchGroupAmount, upsertGroupAmount,
+  fetchAllAssignments, fetchAllGroupAccess
+} from "./api.js";
 import { GROUP_NAMES as GROUPS } from "./groups.js";
+import { buildingsNearPoint as hitTest } from "./map-util.js";
 
 const DAYS = [
   { n: 1, color: "#e74c3c", label: "Tag 1" },
@@ -17,8 +22,10 @@ let mode = "idle";          // idle | brush | erase | detail
 let currentDay = 1;
 let currentPeriod = localStorage.getItem("currentPeriod") || "morning";
 let groupId = "";
-let annotations = {};       // building_id → { day, period, color, comment, is_attention, is_important }
+let annotations = {};       // building_id → own annotation
+let foreignAnn = {};        // building_id → { group_id, color } for other groups (display-only)
 let assignments = {};       // building_id → group_id (territory)
+let allowedGroups = new Set();  // groups whose territory I can paint
 let history = [];           // [{id, prev: ann|null}]
 let layersById = new Map();
 let buildingLayer;
@@ -98,23 +105,35 @@ function renderDayPicker() {
 async function loadAnnotations() {
   if (!groupId) return;
   try {
-    const [data, assignRows] = await Promise.all([
-      fetchAnnotations(groupId),
-      fetchAllAssignments().catch(e => { console.warn("assignments load failed:", e.message); return []; })
+    const [annRows, assignRows, accessRows] = await Promise.all([
+      fetchAllAnnotations(),
+      fetchAllAssignments().catch(e => { console.warn("assignments load failed:", e.message); return []; }),
+      fetchAllGroupAccess().catch(e => { console.warn("access load failed:", e.message); return []; })
     ]);
     annotations = {};
-    data.forEach(a => {
-      annotations[a.building_id] = {
-        day: a.day, period: a.period, color: a.color, comment: a.comment,
-        is_attention: !!a.is_attention, is_important: !!a.is_important
-      };
+    foreignAnn = {};
+    annRows.forEach(a => {
+      if (a.group_id === groupId) {
+        annotations[a.building_id] = {
+          day: a.day, period: a.period, color: a.color, comment: a.comment,
+          is_attention: !!a.is_attention, is_important: !!a.is_important
+        };
+      } else if (a.color) {
+        // Only display-track foreign annotations that have a color.
+        foreignAnn[a.building_id] = { group_id: a.group_id, color: a.color };
+      }
     });
     assignments = {};
     assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
+    allowedGroups = new Set([groupId]);
+    accessRows.forEach(r => {
+      if (r.group_id === groupId) allowedGroups.add(r.granted_group_id);
+    });
   } catch (e) {
-    console.warn("Could not load annotations:", e.message);
+    console.warn("Could not load data:", e.message);
   }
   renderBuildings();
+  updateProgress();
 }
 
 async function renderBuildings() {
@@ -145,24 +164,34 @@ function attachLayerHandlers(id, layer) {
   });
 }
 
+function isAllowed(buildingId) {
+  // Before any territories are configured, fall back to allowing everything
+  // so the app stays usable. Once the admin has assigned anything, we gate.
+  if (Object.keys(assignments).length === 0) return true;
+  const g = assignments[buildingId];
+  return !!g && allowedGroups.has(g);
+}
+
 function buildingStyle(id) {
   const ann = annotations[id];
-  const assigned = assignments[id];
-  const isOtherGroup = assigned && assigned !== groupId;
+  const allowed = isAllowed(id);
 
-  if (isOtherGroup && !ann) {
-    // Other group's territory, no own mark: greyed out silhouette.
-    return { color: "#3a3d4a", weight: 0.5, fillColor: "#5a5f70", fillOpacity: 0.18 };
+  // Own annotation always wins.
+  if (ann) {
+    const fill = ann.color || NEUTRAL_FILL;
+    return { color: "#555", weight: 1.5, fillColor: fill, fillOpacity: 0.85 };
   }
-
-  if (!ann) {
-    // Own territory or unassigned: highlight own slightly.
-    const fillColor = assigned === groupId ? "#dfe4f0" : "#c8c8c8";
-    const fillOpacity = assigned === groupId ? 0.45 : 0.3;
-    return { color: "#555", weight: 1.5, fillColor, fillOpacity };
+  // My territory, unpainted — highlighted "available".
+  if (allowed) {
+    return { color: "#555", weight: 1.5, fillColor: "#eef2fb", fillOpacity: 0.6 };
   }
-  const fill = ann.color || NEUTRAL_FILL;
-  return { color: "#555", weight: 1.5, fillColor: fill, fillOpacity: 0.75 };
+  // Foreign group's paint — dimmed colour hint so the user still sees activity.
+  const foreign = foreignAnn[id];
+  if (foreign) {
+    return { color: "#3a3d4a", weight: 0.5, fillColor: foreign.color, fillOpacity: 0.18 };
+  }
+  // Everything else (other territory unpainted, or unassigned) — silhouette.
+  return { color: "#3a3d4a", weight: 0.4, fillColor: "#5a5f70", fillOpacity: 0.14 };
 }
 
 function bindBadge(id, layer) {
@@ -180,6 +209,8 @@ function bindBadge(id, layer) {
 // ─── Brush / Erase ───────────────────────────────────────────────────────────
 function paintBuilding(id) {
   if (touchedThisStroke.has(id)) return;
+  // Block painting outside the group's permitted territory.
+  if (!isAllowed(id)) { touchedThisStroke.add(id); return; }
   touchedThisStroke.add(id);
 
   const layer = layersById.get(id);
@@ -203,6 +234,7 @@ function paintBuilding(id) {
     building_id: id, group_id: groupId,
     day: currentDay, period: currentPeriod, color: day.color
   }).catch(e => console.warn("upsert failed:", e.message));
+  updateProgress();
 }
 
 function eraseBuilding(id) {
@@ -237,21 +269,7 @@ function eraseBuilding(id) {
       .catch(e => console.warn("delete failed:", e.message));
   }
   if (navigator.vibrate) navigator.vibrate(8);
-}
-
-// ─── Hit testing ─────────────────────────────────────────────────────────────
-function buildingsNearPoint(containerPoint, radiusPx) {
-  const hits = [];
-  const bounds = map.getBounds();
-  layersById.forEach((layer, id) => {
-    if (!bounds.intersects(layer.getBounds())) return;
-    const center = layer.getBounds().getCenter();
-    const cp = map.latLngToContainerPoint(center);
-    const dx = cp.x - containerPoint.x;
-    const dy = cp.y - containerPoint.y;
-    if (dx * dx + dy * dy <= radiusPx * radiusPx) hits.push(id);
-  });
-  return hits;
+  updateProgress();
 }
 
 // ─── Touch / mouse (brush+erase only) ────────────────────────────────────────
@@ -303,7 +321,7 @@ mapEl.addEventListener("touchmove", (e) => {
 mapEl.addEventListener("touchend", () => { isPainting = false; }, { passive: false });
 
 function paintAtPoint(containerPoint) {
-  const ids = buildingsNearPoint(containerPoint, BRUSH_RADIUS_PX);
+  const ids = hitTest(map, layersById, containerPoint, BRUSH_RADIUS_PX);
   if (mode === "brush") ids.forEach(paintBuilding);
   else if (mode === "erase") ids.forEach(eraseBuilding);
 }
@@ -388,6 +406,7 @@ function saveDetail(id, prev, draft) {
     layer?.unbindTooltip();
     deleteAnnotation({ building_id: id, group_id: groupId })
       .catch(e => console.warn("delete failed:", e.message));
+    updateProgress();
     return;
   }
 
@@ -415,6 +434,7 @@ function saveDetail(id, prev, draft) {
     color: next.color, comment: next.comment,
     is_attention: next.is_attention, is_important: next.is_important
   }).catch(e => console.warn("upsert failed:", e.message));
+  updateProgress();
 }
 
 // ─── Amount dialog ───────────────────────────────────────────────────────────
@@ -473,6 +493,21 @@ async function openAmountDialog() {
 document.getElementById("amount-btn").addEventListener("click", openAmountDialog);
 
 // ─── Undo ────────────────────────────────────────────────────────────────────
+function updateProgress() {
+  let denom = 0, num = 0;
+  for (const [bid, g] of Object.entries(assignments)) {
+    if (!allowedGroups.has(g)) continue;
+    denom++;
+    if (annotations[bid]?.color) num++;
+  }
+  const el = document.getElementById("progress-chip");
+  if (!el) return;
+  if (!denom) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  const pct = Math.round((100 * num) / denom);
+  el.textContent = `${pct}% · ${num}/${denom}`;
+}
+
 function undo() {
   const last = history.pop();
   if (!last) { showToast("Nichts rückgängig zu machen"); return; }
@@ -495,6 +530,7 @@ function undo() {
     }).catch(() => {});
   }
   if (navigator.vibrate) navigator.vibrate([5, 30, 5]);
+  updateProgress();
 }
 
 // ─── UI controls ─────────────────────────────────────────────────────────────

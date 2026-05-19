@@ -51,6 +51,17 @@ create table building_assignments (
 
 create index if not exists idx_building_assignments_group on building_assignments(group_id);
 
+drop table if exists group_access;
+
+create table group_access (
+  group_id         text not null,
+  granted_group_id text not null,
+  updated_at       timestamp default now(),
+  primary key (group_id, granted_group_id)
+);
+
+create index if not exists idx_group_access_group on group_access(group_id);
+
 create or replace function update_updated_at()
 returns trigger as $$
 begin
@@ -74,12 +85,18 @@ create trigger building_assignments_updated_at
   before update on building_assignments
   for each row execute function update_updated_at();
 
+drop trigger if exists group_access_updated_at on group_access;
+create trigger group_access_updated_at
+  before update on group_access
+  for each row execute function update_updated_at();
+
 -- ============================================================
 -- Row Level Security — MVP: offen für anon. Vor Produktion härten.
 -- ============================================================
 alter table annotations  enable row level security;
 alter table group_amounts enable row level security;
 alter table building_assignments enable row level security;
+alter table group_access enable row level security;
 
 drop policy if exists "anon read annotations"  on annotations;
 drop policy if exists "anon write annotations" on annotations;
@@ -95,3 +112,8 @@ drop policy if exists "anon read building_assignments"  on building_assignments;
 drop policy if exists "anon write building_assignments" on building_assignments;
 create policy "anon read building_assignments"  on building_assignments for select using (true);
 create policy "anon write building_assignments" on building_assignments for all    using (true);
+
+drop policy if exists "anon read group_access"  on group_access;
+drop policy if exists "anon write group_access" on group_access;
+create policy "anon read group_access"  on group_access for select using (true);
+create policy "anon write group_access" on group_access for all    using (true);

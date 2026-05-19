@@ -524,6 +524,68 @@ body.edit-mode #map { cursor: crosshair; }
   transform: scale(1.12);
 }
 
+/* ── ADMIN: access row ── */
+body.admin { --bar-h: 148px; }
+
+.bar-row-access {
+  justify-content: center;
+  gap: 6px;
+  padding: 0 6px;
+}
+.access-label {
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+#access-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--bg);
+}
+.access-chip {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--swatch-color, var(--border));
+  background: transparent;
+  color: var(--swatch-color, var(--muted));
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+}
+.access-chip.active {
+  background: var(--swatch-color);
+  color: #fff;
+  border-style: solid;
+  opacity: 1;
+}
+
+/* ── PROGRESS CHIP ── */
+#progress-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+#progress-chip.hidden { display: none; }
+
 /* ── ADMIN: chip ── */
 #admin-chip {
   display: flex;
