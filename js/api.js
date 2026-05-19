@@ -90,6 +90,25 @@ export async function deleteAssignment({ building_id }) {
   if (!res.ok) throw new Error(`deleteAssignment failed: ${res.status}`);
 }
 
+export async function upsertAssignmentsBulk(rows) {
+  if (!rows.length) return;
+  const url = `${SUPABASE_URL}/rest/v1/building_assignments`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) throw new Error(`upsertAssignmentsBulk failed: ${res.status}`);
+}
+
+export async function deleteAssignmentsBulk(building_ids) {
+  if (!building_ids.length) return;
+  const inList = building_ids.map(encodeURIComponent).join(",");
+  const url = `${SUPABASE_URL}/rest/v1/building_assignments?building_id=in.(${inList})`;
+  const res = await fetch(url, { method: "DELETE", headers: headers() });
+  if (!res.ok) throw new Error(`deleteAssignmentsBulk failed: ${res.status}`);
+}
+
 export async function fetchAllGroupAccess() {
   const url = `${SUPABASE_URL}/rest/v1/group_access?select=group_id,granted_group_id&limit=${BULK_LIMIT}`;
   const res = await fetch(url, { headers: headers() });

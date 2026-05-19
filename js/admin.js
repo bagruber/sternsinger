@@ -1,7 +1,7 @@
 // js/admin.js — assign buildings to groups (territories) + cross-group access.
 import { GROUPS, GROUP_COLOR } from "./groups.js";
 import {
-  fetchAllAssignments, upsertAssignment, deleteAssignment,
+  fetchAllAssignments, upsertAssignmentsBulk, deleteAssignmentsBulk,
   fetchAllGroupAccess, upsertGroupAccess, deleteGroupAccess
 } from "./api.js";
 import { buildingsNearPoint } from "./map-util.js";
@@ -19,6 +19,15 @@ let layersById = new Map();
 let buildingLayer;
 let isPainting = false;
 let touchedThisStroke = new Set();
+
+// Pending writes, keyed by building_id. Value is the target group_id, or
+// null to mean "delete this assignment". Flushed as a single bulk request
+// at the end of each stroke (and before navigating away). This avoids
+// firing dozens of parallel POSTs that the browser caps at ~6 concurrent
+// — the queued ones get cancelled on navigation, which was the source of
+// the disappearing-assignments bug.
+let pending = new Map();
+let flushPromise = null;
 
 // ─── Map ───
 const map = L.map("map", {
@@ -148,7 +157,7 @@ function buildingStyle(id) {
 }
 
 // ─── Assign / Unassign ───
-async function assignBuilding(id) {
+function assignBuilding(id) {
   if (touchedThisStroke.has(id)) return;
   touchedThisStroke.add(id);
 
@@ -162,11 +171,7 @@ async function assignBuilding(id) {
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
 
-  upsertAssignment({ building_id: id, group_id: currentGroup })
-    .catch(e => {
-      console.warn("assign upsert failed:", e.message);
-      showToast("Speichern fehlgeschlagen — Schema-Migration angewandt?");
-    });
+  pending.set(id, currentGroup);
 }
 
 function unassignBuilding(id) {
@@ -183,8 +188,43 @@ function unassignBuilding(id) {
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
 
-  deleteAssignment({ building_id: id })
-    .catch(e => console.warn("assign delete failed:", e.message));
+  pending.set(id, null);
+}
+
+async function flushPending() {
+  if (pending.size === 0) return;
+  // Coalesce concurrent flush requests onto the same in-flight promise so
+  // we never lose items by racing two flushes that grab the same batch.
+  if (flushPromise) return flushPromise;
+
+  const batch = pending;
+  pending = new Map();
+
+  const toUpsert = [];
+  const toDelete = [];
+  for (const [id, g] of batch) {
+    if (g === null) toDelete.push(id);
+    else toUpsert.push({ building_id: id, group_id: g });
+  }
+
+  flushPromise = (async () => {
+    try {
+      const ops = [];
+      if (toUpsert.length) ops.push(upsertAssignmentsBulk(toUpsert));
+      if (toDelete.length) ops.push(deleteAssignmentsBulk(toDelete));
+      await Promise.all(ops);
+    } catch (e) {
+      console.warn("flush failed:", e.message);
+      // Put unsent items back so the next flush retries.
+      for (const [id, g] of batch) {
+        if (!pending.has(id)) pending.set(id, g);
+      }
+      showToast("Speichern fehlgeschlagen — wird erneut versucht");
+    } finally {
+      flushPromise = null;
+    }
+  })();
+  return flushPromise;
 }
 
 // ─── Touch / mouse ───
@@ -219,7 +259,10 @@ mapEl.addEventListener("touchmove", (e) => {
   paintAtPoint(clientToContainerPoint(e.touches[0]));
 }, { passive: false });
 
-mapEl.addEventListener("touchend", () => { isPainting = false; }, { passive: false });
+mapEl.addEventListener("touchend", () => {
+  isPainting = false;
+  flushPending();
+}, { passive: false });
 
 mapEl.addEventListener("mousedown", (e) => {
   if (!isBrushMode()) return;
@@ -234,7 +277,10 @@ mapEl.addEventListener("mousemove", (e) => {
   const rect = mapEl.getBoundingClientRect();
   paintAtPoint(L.point(e.clientX - rect.left, e.clientY - rect.top));
 });
-window.addEventListener("mouseup", () => { isPainting = false; });
+window.addEventListener("mouseup", () => {
+  isPainting = false;
+  flushPending();
+});
 
 function paintAtPoint(containerPoint) {
   const ids = buildingsNearPoint(map, layersById, containerPoint, BRUSH_RADIUS_PX);
@@ -250,13 +296,14 @@ function undo() {
   const layer = layersById.get(id);
   if (prev) {
     assignments[id] = prev;
-    upsertAssignment({ building_id: id, group_id: prev }).catch(() => {});
+    pending.set(id, prev);
   } else {
     delete assignments[id];
-    deleteAssignment({ building_id: id }).catch(() => {});
+    pending.set(id, null);
   }
   layer?.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate([5, 30, 5]);
+  flushPending();
 }
 
 // ─── UI ───
@@ -267,9 +314,28 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
     btn.classList.add("active");
     applyMapDragPolicy();
     document.body.classList.toggle("edit-mode", isBrushMode());
+    flushPending();
   });
 });
 document.getElementById("undo-btn").addEventListener("click", undo);
+
+// Tab hidden — flush so writes survive a phone lock or background.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) flushPending();
+});
+
+// Intercept navigation so pending writes finish before we leave the page.
+const homeLink = document.getElementById("home-link");
+if (homeLink) {
+  homeLink.addEventListener("click", async (e) => {
+    if (pending.size === 0 && !flushPromise) return;
+    e.preventDefault();
+    const href = homeLink.href;
+    await flushPending();
+    if (flushPromise) await flushPromise;
+    window.location.href = href;
+  });
+}
 
 map.on("zoom", () => {
   const w = document.getElementById("zoom-warning");
