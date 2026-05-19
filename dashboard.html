@@ -37,6 +37,23 @@
   <div id="dash-summary"></div>
 </header>
 
+<!-- Mobile-only: condensed overview shown above filters/map on phones. -->
+<section id="dash-mobile" class="mobile-only">
+  <div id="mobile-overall" class="mobile-card"></div>
+  <div id="mobile-progress" class="mobile-card">
+    <h2>Fortschritt pro Gruppe</h2>
+    <div id="mobile-progress-list"></div>
+  </div>
+  <div id="mobile-money" class="mobile-card">
+    <h2>Gelder pro Gruppe</h2>
+    <div id="mobile-money-list"></div>
+  </div>
+  <details id="mobile-map-toggle" class="mobile-card">
+    <summary>Karte anzeigen</summary>
+    <p class="mobile-hint">Scrolle nach unten für die volle Kartenansicht.</p>
+  </details>
+</section>
+
 <aside id="dash-filters">
   <div class="filter-group">
     <label>Tag</label>

@@ -324,6 +324,10 @@ body.dashboard {
 #special-items .meta { color: var(--muted); font-size: 11px; }
 #special-items .empty { color: var(--muted); padding: 4px 0; }
 
+/* ── MOBILE-ONLY OVERVIEW ──
+   Hidden on desktop entirely so the existing layout is untouched. */
+.mobile-only { display: none; }
+
 /* ── AUTH ── */
 .auth-error {
   margin-top: 8px;
@@ -342,14 +346,175 @@ body.dashboard {
 
 @media (max-width: 720px) {
   body.dashboard {
-    grid-template-columns: 1fr;
-    grid-template-rows: 56px auto 1fr;
-    grid-template-areas:
-      "header"
-      "filters"
-      "main";
+    display: block;
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+    touch-action: auto;
   }
-  #dash-filters { border-right: none; border-bottom: 1px solid var(--border); }
-  #dash-main { grid-template-columns: 1fr; grid-template-rows: 50% 50%; }
-  #dash-stats { border-left: none; border-top: 1px solid var(--border); }
+
+  /* Sticky header keeps the back-link reachable on long scrolls. */
+  #dash-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  #dash-summary {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 12px;
+  }
+  #dash-summary strong { font-size: 14px; }
+
+  /* Mobile overview cards. */
+  .mobile-only { display: block; }
+  #dash-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    background: var(--bg);
+  }
+  .mobile-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .mobile-card h2 {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .overall-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .overall-big {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 44px;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .overall-pct {
+    font-size: 22px;
+    color: var(--muted);
+    margin-left: 2px;
+  }
+  .overall-meta {
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .overall-meta strong {
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 15px;
+  }
+
+  .mp-item { padding: 6px 0; }
+  .mp-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .mp-label { font-size: 13px; }
+  .mp-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .mp-pct {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text);
+    min-width: 36px;
+    text-align: right;
+  }
+  .mp-money { color: var(--text); }
+  .mp-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .mp-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.2s;
+  }
+  .mp-money-fill { background: #2ecc71; }
+
+  #mobile-map-toggle summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--accent);
+    list-style: none;
+  }
+  #mobile-map-toggle summary::-webkit-details-marker { display: none; }
+  #mobile-map-toggle summary::after { content: " ▾"; color: var(--muted); }
+  #mobile-map-toggle[open] summary::after { content: " ▴"; }
+  .mobile-hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 8px 0 0;
+  }
+
+  /* Filters: collapsed by default-ish — keep visible but compact and
+     horizontally scrollable rather than wrapping awkwardly. */
+  #dash-filters {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  .filter-group label { margin-bottom: 4px; }
+  .filter-pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+  .filter-pills::-webkit-scrollbar { display: none; }
+  .pill { flex: 0 0 auto; }
+
+  /* Map: keep the rich view, but bound it so it doesn't crowd
+     out the cards above. The user can pinch-zoom inside the map area. */
+  #dash-main {
+    display: block;
+  }
+  #dash-map-wrap {
+    height: 55vh;
+    border-top: 1px solid var(--border);
+  }
+  #dash-main #map { position: relative; height: 100%; }
+
+  /* The desktop stats column is redundant on mobile (mobile cards
+     cover the same ground). Hide it to keep the page tight. */
+  #dash-stats { display: none; }
+
+  /* Amounts table — keep horizontal scroll, but shrink padding so
+     more cells fit on a phone screen. */
+  #dash-amounts {
+    padding: 12px;
+    max-height: none;
+  }
+  #amounts-table th,
+  #amounts-table td { padding: 3px 4px; }
+  .amount-input { width: 50px; font-size: 11px; }
 }

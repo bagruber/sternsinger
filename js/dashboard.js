@@ -2,6 +2,7 @@
 import {
   fetchAllAnnotations,
   fetchAllGroupAmounts,
+  fetchAllAssignments,
   upsertGroupAmount
 } from "./api.js";
 
@@ -24,6 +25,7 @@ const PERIODS = [
 
 const filter = { day: "all", group: "all", period: "all" };
 let allAnnotations = [];
+let assignments = {};   // building_id → group_id
 let amounts = new Map(); // `${group}|${day}|${period}` → { amount_cents, notes }
 let buildingLayer;
 let buildingsGeoJSON = null;
@@ -120,6 +122,103 @@ function renderViews() {
   renderStats(rows);
   renderSpecialList(rows);
   renderMap(rows);
+  renderMobile();
+}
+
+// ─── Mobile cards ────────────────────────────────────────────────────────────
+// Built from the FULL dataset (not the filtered set) — these are the
+// "essentials at a glance" overview that should stay stable regardless of
+// what the user pokes at in the filter pills.
+function computeProgress() {
+  const p = Object.fromEntries(GROUPS.map(g => [g, { painted: 0, assigned: 0 }]));
+  Object.entries(assignments).forEach(([_bid, g]) => {
+    if (p[g]) p[g].assigned++;
+  });
+  allAnnotations.forEach(a => {
+    if (!a.color || !p[a.group_id]) return;
+    if (assignments[a.building_id] === a.group_id) p[a.group_id].painted++;
+  });
+  return p;
+}
+
+function computeMoneyByGroup() {
+  const m = Object.fromEntries(GROUPS.map(g => [g, 0]));
+  for (const [key, v] of amounts) {
+    const [g] = key.split("|");
+    if (m[g] != null) m[g] += v.amount_cents || 0;
+  }
+  return m;
+}
+
+function renderMobile() {
+  renderMobileOverall();
+  renderMobileProgress();
+  renderMobileMoney();
+}
+
+function renderMobileOverall() {
+  const el = document.getElementById("mobile-overall");
+  if (!el) return;
+  const prog = computeProgress();
+  const totals = Object.values(prog).reduce(
+    (s, p) => ({ painted: s.painted + p.painted, assigned: s.assigned + p.assigned }),
+    { painted: 0, assigned: 0 }
+  );
+  const pct = totals.assigned ? Math.round(100 * totals.painted / totals.assigned) : 0;
+  const money = [...amounts.values()].reduce((s, v) => s + (v.amount_cents || 0), 0);
+  el.innerHTML = `
+    <div class="overall-row">
+      <div class="overall-big">${pct}<span class="overall-pct">%</span></div>
+      <div class="overall-meta">
+        <div><strong>${totals.painted}</strong> / ${totals.assigned} Gebäude</div>
+        <div><strong>${formatEuro(money)}</strong> gesammelt</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderMobileProgress() {
+  const el = document.getElementById("mobile-progress-list");
+  if (!el) return;
+  const prog = computeProgress();
+  el.innerHTML = "";
+  GROUPS.forEach(g => {
+    const { painted, assigned } = prog[g];
+    const pct = assigned ? Math.round(100 * painted / assigned) : 0;
+    const item = document.createElement("div");
+    item.className = "mp-item";
+    item.innerHTML = `
+      <div class="mp-row">
+        <div class="mp-label">${escapeHtml(g)}</div>
+        <div class="mp-num">${painted}/${assigned}</div>
+        <div class="mp-pct">${pct}%</div>
+      </div>
+      <div class="mp-bar"><div class="mp-fill" style="width:${Math.min(100, pct)}%"></div></div>
+    `;
+    el.appendChild(item);
+  });
+}
+
+function renderMobileMoney() {
+  const el = document.getElementById("mobile-money-list");
+  if (!el) return;
+  const money = computeMoneyByGroup();
+  const max = Math.max(1, ...Object.values(money));
+  el.innerHTML = "";
+  GROUPS.forEach(g => {
+    const cents = money[g];
+    const pct = Math.round(100 * cents / max);
+    const item = document.createElement("div");
+    item.className = "mp-item";
+    item.innerHTML = `
+      <div class="mp-row">
+        <div class="mp-label">${escapeHtml(g)}</div>
+        <div class="mp-num mp-money">${formatEuro(cents)}</div>
+      </div>
+      <div class="mp-bar"><div class="mp-fill mp-money-fill" style="width:${pct}%"></div></div>
+    `;
+    el.appendChild(item);
+  });
 }
 
 function renderSummary(rows) {
@@ -295,6 +394,7 @@ function renderAmountsTable() {
 
   if (window.lucide) lucide.createIcons();
   renderAmountsTotals();
+  renderMobile();
 }
 
 function renderAmountsTotals() {
@@ -379,9 +479,15 @@ window.addEventListener("load", () => { if (window.lucide) lucide.createIcons();
   initMap();
 
   try {
-    const [annRows, amtRows] = await Promise.all([fetchAllAnnotations(), fetchAllGroupAmounts()]);
+    const [annRows, amtRows, assignRows] = await Promise.all([
+      fetchAllAnnotations(),
+      fetchAllGroupAmounts(),
+      fetchAllAssignments().catch(e => { console.warn("assignments load failed:", e.message); return []; })
+    ]);
     allAnnotations = annRows;
     amounts = new Map(amtRows.map(r => [amountKey(r.group_id, r.day, r.period), { amount_cents: r.amount_cents, notes: r.notes }]));
+    assignments = {};
+    assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
   } catch (e) {
     document.getElementById("dash-summary").innerHTML = `<div class="err">Fehler beim Laden: ${escapeHtml(e.message)}</div>`;
     return;
