@@ -10,22 +10,33 @@ const headers = () => ({
   "Prefer": "return=minimal"
 });
 
-// PostgREST caps list responses at 1000 rows by default. Bulk fetch endpoints
-// need an explicit large limit, otherwise rows silently disappear.
-const BULK_LIMIT = 100000;
+// Supabase enforces a server-side cap (db-max-rows, default 1000) that
+// ignores `limit` query params, so bulk fetches must paginate. Loop until
+// a page returns fewer rows than the page size.
+const PAGE_SIZE = 1000;
+
+async function fetchAllPaged(baseUrl) {
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const url = `${baseUrl}${sep}offset=${offset}&limit=${PAGE_SIZE}`;
+    const res = await fetch(url, { headers: headers() });
+    if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+    const rows = await res.json();
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return all;
+}
 
 export async function fetchAllAnnotations() {
-  const url = `${SUPABASE_URL}/rest/v1/annotations?select=building_id,group_id,day,period,color,comment,is_attention,is_important,updated_at&limit=${BULK_LIMIT}`;
-  const res = await fetch(url, { headers: headers() });
-  if (!res.ok) throw new Error(`fetchAllAnnotations failed: ${res.status}`);
-  return res.json();
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?select=building_id,group_id,day,period,color,comment,is_attention,is_important,updated_at`);
 }
 
 export async function fetchAnnotations(groupId) {
-  const url = `${SUPABASE_URL}/rest/v1/annotations?group_id=eq.${encodeURIComponent(groupId)}&select=building_id,day,period,color,comment,is_attention,is_important,updated_at&limit=${BULK_LIMIT}`;
-  const res = await fetch(url, { headers: headers() });
-  if (!res.ok) throw new Error(`fetchAnnotations failed: ${res.status}`);
-  return res.json();
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?group_id=eq.${encodeURIComponent(groupId)}&select=building_id,day,period,color,comment,is_attention,is_important,updated_at`);
 }
 
 export async function upsertAnnotation({
@@ -51,10 +62,7 @@ export async function fetchGroupAmount({ group_id, day, period }) {
 }
 
 export async function fetchAllGroupAmounts() {
-  const url = `${SUPABASE_URL}/rest/v1/group_amounts?select=group_id,day,period,amount_cents,notes,updated_at&limit=${BULK_LIMIT}`;
-  const res = await fetch(url, { headers: headers() });
-  if (!res.ok) throw new Error(`fetchAllGroupAmounts failed: ${res.status}`);
-  return res.json();
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/group_amounts?select=group_id,day,period,amount_cents,notes,updated_at`);
 }
 
 export async function upsertGroupAmount({ group_id, day, period, amount_cents, notes = null }) {
@@ -68,10 +76,7 @@ export async function upsertGroupAmount({ group_id, day, period, amount_cents, n
 }
 
 export async function fetchAllAssignments() {
-  const url = `${SUPABASE_URL}/rest/v1/building_assignments?select=building_id,group_id,updated_at&limit=${BULK_LIMIT}`;
-  const res = await fetch(url, { headers: headers() });
-  if (!res.ok) throw new Error(`fetchAllAssignments failed: ${res.status}`);
-  return res.json();
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/building_assignments?select=building_id,group_id,updated_at`);
 }
 
 export async function upsertAssignment({ building_id, group_id }) {
@@ -110,10 +115,7 @@ export async function deleteAssignmentsBulk(building_ids) {
 }
 
 export async function fetchAllGroupAccess() {
-  const url = `${SUPABASE_URL}/rest/v1/group_access?select=group_id,granted_group_id&limit=${BULK_LIMIT}`;
-  const res = await fetch(url, { headers: headers() });
-  if (!res.ok) throw new Error(`fetchAllGroupAccess failed: ${res.status}`);
-  return res.json();
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/group_access?select=group_id,granted_group_id`);
 }
 
 export async function upsertGroupAccess({ group_id, granted_group_id }) {
