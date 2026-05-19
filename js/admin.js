@@ -21,13 +21,11 @@ let isPainting = false;
 let touchedThisStroke = new Set();
 
 // Pending writes, keyed by building_id. Value is the target group_id, or
-// null to mean "delete this assignment". Flushed as a single bulk request
-// at the end of each stroke (and before navigating away). This avoids
-// firing dozens of parallel POSTs that the browser caps at ~6 concurrent
-// — the queued ones get cancelled on navigation, which was the source of
-// the disappearing-assignments bug.
+// null to mean "delete this assignment". Drained by a serialized chain so
+// new items queued while a flush is in flight always get a follow-up flush.
 let pending = new Map();
-let flushPromise = null;
+let flushChain = Promise.resolve();
+let heartbeat = null;        // setTimeout id for the debounced safety flush
 
 // ─── Map ───
 const map = L.map("map", {
@@ -171,7 +169,7 @@ function assignBuilding(id) {
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
 
-  pending.set(id, currentGroup);
+  queue(id, currentGroup);
 }
 
 function unassignBuilding(id) {
@@ -188,15 +186,32 @@ function unassignBuilding(id) {
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
 
-  pending.set(id, null);
+  queue(id, null);
 }
 
-async function flushPending() {
-  if (pending.size === 0) return;
-  // Coalesce concurrent flush requests onto the same in-flight promise so
-  // we never lose items by racing two flushes that grab the same batch.
-  if (flushPromise) return flushPromise;
+function queue(id, value) {
+  pending.set(id, value);
+  scheduleHeartbeat();
+}
 
+function scheduleHeartbeat() {
+  if (heartbeat) return;
+  // Safety net: if no stroke-end/mode/nav event fires, this drains the
+  // queue on its own after a short pause.
+  heartbeat = setTimeout(() => { heartbeat = null; flushPending(); }, 800);
+}
+
+function flushPending() {
+  if (heartbeat) { clearTimeout(heartbeat); heartbeat = null; }
+  // Chain — each call waits for the previous flush to finish before
+  // taking its own batch. This guarantees items queued mid-flight don't
+  // get stranded.
+  flushChain = flushChain.then(doFlush, doFlush);
+  return flushChain;
+}
+
+async function doFlush() {
+  if (pending.size === 0) return;
   const batch = pending;
   pending = new Map();
 
@@ -206,25 +221,19 @@ async function flushPending() {
     if (g === null) toDelete.push(id);
     else toUpsert.push({ building_id: id, group_id: g });
   }
-
-  flushPromise = (async () => {
-    try {
-      const ops = [];
-      if (toUpsert.length) ops.push(upsertAssignmentsBulk(toUpsert));
-      if (toDelete.length) ops.push(deleteAssignmentsBulk(toDelete));
-      await Promise.all(ops);
-    } catch (e) {
-      console.warn("flush failed:", e.message);
-      // Put unsent items back so the next flush retries.
-      for (const [id, g] of batch) {
-        if (!pending.has(id)) pending.set(id, g);
-      }
-      showToast("Speichern fehlgeschlagen — wird erneut versucht");
-    } finally {
-      flushPromise = null;
+  try {
+    if (toUpsert.length) await upsertAssignmentsBulk(toUpsert);
+    if (toDelete.length) await deleteAssignmentsBulk(toDelete);
+    showToast(`${batch.size} gespeichert`);
+  } catch (e) {
+    console.warn("flush failed:", e);
+    for (const [id, g] of batch) {
+      if (!pending.has(id)) pending.set(id, g);
     }
-  })();
-  return flushPromise;
+    showToast(`Fehler beim Speichern: ${e.message}`);
+    // Retry shortly.
+    scheduleHeartbeat();
+  }
 }
 
 // ─── Touch / mouse ───
@@ -264,6 +273,11 @@ mapEl.addEventListener("touchend", () => {
   flushPending();
 }, { passive: false });
 
+mapEl.addEventListener("touchcancel", () => {
+  isPainting = false;
+  flushPending();
+}, { passive: false });
+
 mapEl.addEventListener("mousedown", (e) => {
   if (!isBrushMode()) return;
   if (map.getZoom() < MIN_ZOOM) { showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`); return; }
@@ -296,10 +310,10 @@ function undo() {
   const layer = layersById.get(id);
   if (prev) {
     assignments[id] = prev;
-    pending.set(id, prev);
+    queue(id, prev);
   } else {
     delete assignments[id];
-    pending.set(id, null);
+    queue(id, null);
   }
   layer?.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate([5, 30, 5]);
@@ -328,11 +342,13 @@ document.addEventListener("visibilitychange", () => {
 const homeLink = document.getElementById("home-link");
 if (homeLink) {
   homeLink.addEventListener("click", async (e) => {
-    if (pending.size === 0 && !flushPromise) return;
     e.preventDefault();
     const href = homeLink.href;
-    await flushPending();
-    if (flushPromise) await flushPromise;
+    // Drain everything — including items queued mid-flight.
+    while (pending.size > 0) {
+      await flushPending();
+    }
+    await flushChain;  // wait for any final in-flight chain step
     window.location.href = href;
   });
 }
