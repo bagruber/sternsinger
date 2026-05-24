@@ -407,11 +407,15 @@ body.edit-mode #map { cursor: crosshair; }
   position: fixed;
   top: 12px;
   left: 12px;
+  right: 12px;            /* let HUD use available width before wrapping */
   z-index: 1000;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  pointer-events: none;   /* gaps between chips don't block map */
 }
+#top-hud > * { pointer-events: auto; }
 
 #amount-btn, #dashboard-link, #home-link, #admin-link {
   display: flex;
@@ -442,6 +446,13 @@ body.edit-mode #map { cursor: crosshair; }
   font-family: 'JetBrains Mono', monospace;
   cursor: pointer;
   transition: border-color 0.15s;
+  max-width: 60vw;
+  min-width: 0;
+}
+#group-chip #group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #group-chip:hover { border-color: var(--accent); }
@@ -583,8 +594,15 @@ body.admin { --bar-h: 148px; }
   font-family: 'JetBrains Mono', monospace;
   color: var(--muted);
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 #progress-chip.hidden { display: none; }
+#progress-chip .primary { color: var(--text); }
+@media (max-width: 480px) {
+  /* On narrow phones the absolute counts push the HUD off-screen.
+     Show just the percent; full counts live in the dashboard. */
+  #progress-chip .secondary { display: none; }
+}
 
 /* ── ADMIN: chip ── */
 #admin-chip {

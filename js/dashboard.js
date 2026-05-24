@@ -3,7 +3,8 @@ import {
   fetchAllAnnotations,
   fetchAllGroupAmounts,
   fetchAllAssignments,
-  upsertGroupAmount
+  upsertGroupAmount,
+  invalidateCache
 } from "./api.js";
 import { GROUP_NAMES as GROUPS, DAYS, PERIODS } from "./groups.js";
 
@@ -501,6 +502,9 @@ async function refresh() {
   refreshing = true;
   const btn = document.getElementById("refresh-btn");
   btn?.classList.add("spinning");
+  // Explicit refresh: bypass any cached assignment/access data.
+  invalidateCache("assignments");
+  invalidateCache("access");
   try {
     const ok = await loadData();
     if (ok) {

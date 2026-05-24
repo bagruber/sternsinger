@@ -16,6 +16,18 @@
 </head>
 <body class="admin">
 
+<div id="auth-gate" class="modal-backdrop">
+  <div class="modal-box">
+    <h2>Admin</h2>
+    <p>Passwort eingeben.</p>
+    <input type="password" id="auth-input" autocomplete="off" />
+    <div class="modal-actions">
+      <button class="btn-primary" id="auth-submit">Öffnen</button>
+    </div>
+    <div id="auth-error" class="auth-error hidden">Falsches Passwort.</div>
+  </div>
+</div>
+
 <div id="map"></div>
 
 <!-- TOP HUD -->

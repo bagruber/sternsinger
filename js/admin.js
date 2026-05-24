@@ -295,8 +295,41 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove("visible"), 2500);
 }
 
+// ─── Auth gate ───
+const ADMIN_PASSWORD = "admin";
+
+function authenticate() {
+  if (sessionStorage.getItem("admin_auth") === "ok") {
+    document.getElementById("auth-gate").style.display = "none";
+    return Promise.resolve(true);
+  }
+  return new Promise(resolve => {
+    const gate = document.getElementById("auth-gate");
+    const input = document.getElementById("auth-input");
+    const submit = document.getElementById("auth-submit");
+    const err = document.getElementById("auth-error");
+    const tryAuth = () => {
+      if (input.value === ADMIN_PASSWORD) {
+        sessionStorage.setItem("admin_auth", "ok");
+        gate.style.display = "none";
+        resolve(true);
+      } else {
+        err.classList.remove("hidden");
+        input.value = "";
+        input.focus();
+      }
+    };
+    submit.addEventListener("click", tryAuth);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") tryAuth(); });
+    input.focus();
+  });
+}
+
 // ─── Boot ───
 window.addEventListener("load", () => { if (window.lucide) lucide.createIcons(); });
-renderGroupPalette();
-loadAll();
-brush.refreshDragPolicy();
+(async () => {
+  await authenticate();
+  renderGroupPalette();
+  loadAll();
+  brush.refreshDragPolicy();
+})();

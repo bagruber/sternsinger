@@ -475,7 +475,9 @@ function updateProgress() {
   if (!denom) { el.classList.add("hidden"); return; }
   el.classList.remove("hidden");
   const pct = Math.round((100 * num) / denom);
-  el.textContent = `${pct}% · ${num}/${denom}`;
+  // Split so CSS can drop the absolute counts on narrow screens
+  // where the group chip is already eating most of the HUD width.
+  el.innerHTML = `<span class="primary">${pct}%</span><span class="secondary"> · ${num}/${denom}</span>`;
 }
 
 function undo() {

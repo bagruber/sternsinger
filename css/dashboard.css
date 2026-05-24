@@ -375,12 +375,17 @@ body.dashboard {
 #notes-dialog::backdrop { background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
 
 @media (max-width: 720px) {
-  body.dashboard {
-    display: block;
+  /* Base style.css locks html/body to overflow:hidden + touch-action:none
+     for the no-scroll map app. The dashboard needs to scroll vertically
+     on phones, so override both anchors. */
+  html, body.dashboard {
     height: auto;
     min-height: 100%;
     overflow: auto;
     touch-action: auto;
+  }
+  body.dashboard {
+    display: block;
   }
 
   /* Sticky header keeps the back-link reachable on long scrolls. */
