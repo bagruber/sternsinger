@@ -4,7 +4,7 @@ import {
   fetchAllAssignments, upsertAssignmentsBulk, deleteAssignmentsBulk,
   fetchAllGroupAccess, upsertGroupAccess, deleteGroupAccess
 } from "./api.js";
-import { buildingsNearPoint } from "./map-util.js";
+import { setupBrush } from "./brush.js";
 
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
@@ -17,15 +17,13 @@ let access = {};                // group_id → Set<granted_group_id>
 let history = [];               // [{ id, prev: group_id|null }]
 let layersById = new Map();
 let buildingLayer;
-let isPainting = false;
-let touchedThisStroke = new Set();
 
 // Pending writes, keyed by building_id. Value is the target group_id, or
 // null to mean "delete this assignment". Drained by a serialized chain so
 // new items queued while a flush is in flight always get a follow-up flush.
 let pending = new Map();
 let flushChain = Promise.resolve();
-let heartbeat = null;        // setTimeout id for the debounced safety flush
+let heartbeat = null;
 
 // ─── Map ───
 const map = L.map("map", {
@@ -81,7 +79,7 @@ function renderAccessRow() {
   c.innerHTML = "";
   const granted = ensureAccessSet(currentGroup);
   GROUPS.forEach(g => {
-    if (g.id === currentGroup) return; // skip self
+    if (g.id === currentGroup) return;
     const b = document.createElement("button");
     const on = granted.has(g.id);
     b.className = "access-chip" + (on ? " active" : "");
@@ -96,7 +94,6 @@ function renderAccessRow() {
 async function toggleAccess(targetGroupId, btn) {
   const granted = ensureAccessSet(currentGroup);
   const willEnable = !granted.has(targetGroupId);
-  // optimistic
   if (willEnable) granted.add(targetGroupId); else granted.delete(targetGroupId);
   btn.classList.toggle("active", willEnable);
   try {
@@ -106,7 +103,6 @@ async function toggleAccess(targetGroupId, btn) {
       await deleteGroupAccess({ group_id: currentGroup, granted_group_id: targetGroupId });
     }
   } catch (e) {
-    // revert
     if (willEnable) granted.delete(targetGroupId); else granted.add(targetGroupId);
     btn.classList.toggle("active", !willEnable);
     showToast("Speichern fehlgeschlagen: " + e.message);
@@ -141,8 +137,7 @@ async function renderBuildings() {
   buildingLayer = L.geoJSON(geojson, {
     style: feature => buildingStyle(feature.properties.id),
     onEachFeature: (feature, layer) => {
-      const id = feature.properties.id;
-      layersById.set(id, layer);
+      layersById.set(feature.properties.id, layer);
     }
   }).addTo(map);
 }
@@ -154,11 +149,8 @@ function buildingStyle(id) {
   return { color: "#222", weight: 1.5, fillColor: fill, fillOpacity: 0.7 };
 }
 
-// ─── Assign / Unassign ───
+// ─── Assign / Unassign (called once per building per stroke by the brush) ───
 function assignBuilding(id) {
-  if (touchedThisStroke.has(id)) return;
-  touchedThisStroke.add(id);
-
   const layer = layersById.get(id);
   if (!layer) return;
   const prev = assignments[id] || null;
@@ -173,9 +165,6 @@ function assignBuilding(id) {
 }
 
 function unassignBuilding(id) {
-  if (touchedThisStroke.has(id)) return;
-  touchedThisStroke.add(id);
-
   const layer = layersById.get(id);
   if (!layer) return;
   const prev = assignments[id] || null;
@@ -189,6 +178,7 @@ function unassignBuilding(id) {
   queue(id, null);
 }
 
+// ─── Pending-write queue + serialized flush ───
 function queue(id, value) {
   pending.set(id, value);
   scheduleHeartbeat();
@@ -196,16 +186,11 @@ function queue(id, value) {
 
 function scheduleHeartbeat() {
   if (heartbeat) return;
-  // Safety net: if no stroke-end/mode/nav event fires, this drains the
-  // queue on its own after a short pause.
   heartbeat = setTimeout(() => { heartbeat = null; flushPending(); }, 800);
 }
 
 function flushPending() {
   if (heartbeat) { clearTimeout(heartbeat); heartbeat = null; }
-  // Chain — each call waits for the previous flush to finish before
-  // taking its own batch. This guarantees items queued mid-flight don't
-  // get stranded.
   flushChain = flushChain.then(doFlush, doFlush);
   return flushChain;
 }
@@ -231,76 +216,21 @@ async function doFlush() {
       if (!pending.has(id)) pending.set(id, g);
     }
     showToast(`Fehler beim Speichern: ${e.message}`);
-    // Retry shortly.
     scheduleHeartbeat();
   }
 }
 
-// ─── Touch / mouse ───
-const mapEl = map.getContainer();
-
-function isBrushMode() { return mode === "brush" || mode === "erase"; }
-function applyMapDragPolicy() {
-  if (isBrushMode()) map.dragging.disable();
-  else map.dragging.enable();
-}
-function clientToContainerPoint(t) {
-  const rect = mapEl.getBoundingClientRect();
-  return L.point(t.clientX - rect.left, t.clientY - rect.top);
-}
-
-mapEl.addEventListener("touchstart", (e) => {
-  if (!isBrushMode()) return;
-  if (e.touches.length >= 2) { map.dragging.enable(); isPainting = false; return; }
-  if (map.getZoom() < MIN_ZOOM) { showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`); return; }
-  e.preventDefault();
-  map.dragging.disable();
-  isPainting = true;
-  touchedThisStroke = new Set();
-  paintAtPoint(clientToContainerPoint(e.touches[0]));
-}, { passive: false });
-
-mapEl.addEventListener("touchmove", (e) => {
-  if (!isBrushMode()) return;
-  if (e.touches.length >= 2) { isPainting = false; map.dragging.enable(); return; }
-  if (!isPainting) return;
-  e.preventDefault();
-  paintAtPoint(clientToContainerPoint(e.touches[0]));
-}, { passive: false });
-
-mapEl.addEventListener("touchend", () => {
-  isPainting = false;
-  flushPending();
-}, { passive: false });
-
-mapEl.addEventListener("touchcancel", () => {
-  isPainting = false;
-  flushPending();
-}, { passive: false });
-
-mapEl.addEventListener("mousedown", (e) => {
-  if (!isBrushMode()) return;
-  if (map.getZoom() < MIN_ZOOM) { showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`); return; }
-  isPainting = true;
-  touchedThisStroke = new Set();
-  const rect = mapEl.getBoundingClientRect();
-  paintAtPoint(L.point(e.clientX - rect.left, e.clientY - rect.top));
+// ─── Brush wiring ───
+const brush = setupBrush(map, {
+  getMode: () => mode,
+  onPaint: assignBuilding,
+  onErase: unassignBuilding,
+  onStrokeEnd: flushPending,
+  layersById,
+  minZoom: MIN_ZOOM,
+  radiusPx: BRUSH_RADIUS_PX,
+  onZoomBlocked: () => showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`),
 });
-mapEl.addEventListener("mousemove", (e) => {
-  if (!isPainting || !isBrushMode()) return;
-  const rect = mapEl.getBoundingClientRect();
-  paintAtPoint(L.point(e.clientX - rect.left, e.clientY - rect.top));
-});
-window.addEventListener("mouseup", () => {
-  isPainting = false;
-  flushPending();
-});
-
-function paintAtPoint(containerPoint) {
-  const ids = buildingsNearPoint(map, layersById, containerPoint, BRUSH_RADIUS_PX);
-  if (mode === "brush") ids.forEach(assignBuilding);
-  else if (mode === "erase") ids.forEach(unassignBuilding);
-}
 
 // ─── Undo ───
 function undo() {
@@ -326,8 +256,8 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
     mode = btn.dataset.mode;
     document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    applyMapDragPolicy();
-    document.body.classList.toggle("edit-mode", isBrushMode());
+    brush.refreshDragPolicy();
+    document.body.classList.toggle("edit-mode", mode === "brush" || mode === "erase");
     flushPending();
   });
 });
@@ -344,18 +274,18 @@ if (homeLink) {
   homeLink.addEventListener("click", async (e) => {
     e.preventDefault();
     const href = homeLink.href;
-    // Drain everything — including items queued mid-flight.
     while (pending.size > 0) {
       await flushPending();
     }
-    await flushChain;  // wait for any final in-flight chain step
+    await flushChain;
     window.location.href = href;
   });
 }
 
 map.on("zoom", () => {
   const w = document.getElementById("zoom-warning");
-  w.classList.toggle("hidden", map.getZoom() >= MIN_ZOOM || !isBrushMode());
+  const isBrush = mode === "brush" || mode === "erase";
+  w.classList.toggle("hidden", map.getZoom() >= MIN_ZOOM || !isBrush);
 });
 
 function showToast(msg) {
@@ -369,4 +299,4 @@ function showToast(msg) {
 window.addEventListener("load", () => { if (window.lucide) lucide.createIcons(); });
 renderGroupPalette();
 loadAll();
-applyMapDragPolicy();
+brush.refreshDragPolicy();

@@ -5,28 +5,16 @@ import {
   fetchAllAssignments,
   upsertGroupAmount
 } from "./api.js";
+import { GROUP_NAMES as GROUPS, DAYS, PERIODS } from "./groups.js";
 
 const PASSWORD = "sternsinger2027";
-
-const GROUPS = [
-  "Stadt", "Feldkirchner Au", "Neustadt I", "Neustadt II",
-  "Bonau", "Westerberg", "Oberes Gereuth", "Unteres Gereuth"
-];
-const DAYS = [
-  { n: 1, color: "#e74c3c", label: "Tag 1" },
-  { n: 2, color: "#e67e22", label: "Tag 2" },
-  { n: 3, color: "#2ecc71", label: "Tag 3" },
-  { n: 4, color: "#3498db", label: "Tag 4" }
-];
-const PERIODS = [
-  { id: "morning",   label: "Vor Mittag",   short: "VM" },
-  { id: "afternoon", label: "Nach Mittag", short: "NM" }
-];
 
 const filter = { day: "all", group: "all", period: "all" };
 let allAnnotations = [];
 let assignments = {};   // building_id → group_id
 let amounts = new Map(); // `${group}|${day}|${period}` → { amount_cents, notes }
+let lastRefreshAt = 0;
+let refreshing = false;
 let buildingLayer;
 let buildingsGeoJSON = null;
 let map;
@@ -478,6 +466,17 @@ window.addEventListener("load", () => { if (window.lucide) lucide.createIcons();
 
   initMap();
 
+  const loaded = await loadData();
+  if (!loaded) return;
+
+  renderViews();
+  renderAmountsTable();
+  wireRefreshButton();
+  setInterval(updateLastRefreshLabel, 30 * 1000);
+})();
+
+// ─── Refresh ────────────────────────────────────────────────────────────────
+async function loadData() {
   try {
     const [annRows, amtRows, assignRows] = await Promise.all([
       fetchAllAnnotations(),
@@ -488,11 +487,52 @@ window.addEventListener("load", () => { if (window.lucide) lucide.createIcons();
     amounts = new Map(amtRows.map(r => [amountKey(r.group_id, r.day, r.period), { amount_cents: r.amount_cents, notes: r.notes }]));
     assignments = {};
     assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
+    lastRefreshAt = Date.now();
+    updateLastRefreshLabel();
+    return true;
   } catch (e) {
     document.getElementById("dash-summary").innerHTML = `<div class="err">Fehler beim Laden: ${escapeHtml(e.message)}</div>`;
-    return;
+    return false;
   }
+}
 
-  renderViews();
-  renderAmountsTable();
-})();
+async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
+  const btn = document.getElementById("refresh-btn");
+  btn?.classList.add("spinning");
+  try {
+    const ok = await loadData();
+    if (ok) {
+      renderViews();
+      renderAmountsTable();
+    }
+  } finally {
+    refreshing = false;
+    btn?.classList.remove("spinning");
+  }
+}
+
+function wireRefreshButton() {
+  const btn = document.getElementById("refresh-btn");
+  if (!btn) return;
+  btn.addEventListener("click", refresh);
+}
+
+function relativeTime(ms) {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 30) return "gerade eben";
+  if (sec < 60) return `vor ${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `vor ${min} min`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `vor ${hr} Std`;
+  const days = Math.floor(hr / 24);
+  return `vor ${days} ${days === 1 ? "Tag" : "Tagen"}`;
+}
+
+function updateLastRefreshLabel() {
+  const el = document.getElementById("last-refresh");
+  if (!el || !lastRefreshAt) return;
+  el.textContent = relativeTime(Date.now() - lastRefreshAt);
+}

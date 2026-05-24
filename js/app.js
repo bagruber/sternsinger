@@ -4,15 +4,9 @@ import {
   fetchGroupAmount, upsertGroupAmount,
   fetchAllAssignments, fetchAllGroupAccess
 } from "./api.js";
-import { GROUP_NAMES as GROUPS } from "./groups.js";
-import { buildingsNearPoint as hitTest } from "./map-util.js";
+import { GROUP_NAMES as GROUPS, DAYS } from "./groups.js";
+import { setupBrush } from "./brush.js";
 
-const DAYS = [
-  { n: 1, color: "#e74c3c", label: "Tag 1" },
-  { n: 2, color: "#e67e22", label: "Tag 2" },
-  { n: 3, color: "#2ecc71", label: "Tag 3" },
-  { n: 4, color: "#3498db", label: "Tag 4" }
-];
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
 const NEUTRAL_FILL = "#9aa3b5"; // building marked but no color (tag/comment only)
@@ -29,8 +23,6 @@ let allowedGroups = new Set();  // groups whose territory I can paint
 let history = [];           // [{id, prev: ann|null}]
 let layersById = new Map();
 let buildingLayer;
-let isPainting = false;
-let touchedThisStroke = new Set();
 
 // ─── Map ─────────────────────────────────────────────────────────────────────
 const map = L.map("map", {
@@ -47,6 +39,13 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 L.control.zoom({ position: "topright" }).addTo(map);
 
 // ─── Group setup ─────────────────────────────────────────────────────────────
+// Soft password protection: the first 4 chars of the group name (lowercased)
+// must be entered to pick a group. Not real security — just enough friction
+// that a member doesn't accidentally tap into the wrong group's data.
+function requiredPasswordFor(name) {
+  return name.slice(0, 4).toLowerCase();
+}
+
 function setupGroup() {
   const stored = localStorage.getItem("groupId");
   if (stored && GROUPS.includes(stored)) {
@@ -67,15 +66,24 @@ function renderGroupList() {
     const b = document.createElement("button");
     b.className = "group-option";
     b.textContent = name;
-    b.addEventListener("click", () => {
-      groupId = name;
-      localStorage.setItem("groupId", groupId);
-      document.getElementById("group-modal").classList.add("hidden");
-      updateGroupDisplay();
-      loadAnnotations();
-    });
+    b.addEventListener("click", () => tryPickGroup(name));
     c.appendChild(b);
   });
+}
+
+function tryPickGroup(name) {
+  const required = requiredPasswordFor(name);
+  const entered = prompt(`Passwort für „${name}" (Hinweis: 4 Buchstaben):`);
+  if (entered == null) return; // cancelled
+  if (entered.toLowerCase().trim() !== required) {
+    showToast("Falsches Passwort");
+    return;
+  }
+  groupId = name;
+  localStorage.setItem("groupId", groupId);
+  document.getElementById("group-modal").classList.add("hidden");
+  updateGroupDisplay();
+  loadAnnotations();
 }
 function updateGroupDisplay() {
   document.getElementById("group-label").textContent = groupId;
@@ -206,12 +214,10 @@ function bindBadge(id, layer) {
   layer.bindTooltip(parts.join(" "), { permanent: true, className: "comment-badge", direction: "center" });
 }
 
-// ─── Brush / Erase ───────────────────────────────────────────────────────────
+// ─── Brush / Erase (called once per building per stroke by the brush) ──────
 function paintBuilding(id) {
-  if (touchedThisStroke.has(id)) return;
   // Block painting outside the group's permitted territory.
-  if (!isAllowed(id)) { touchedThisStroke.add(id); return; }
-  touchedThisStroke.add(id);
+  if (!isAllowed(id)) return;
 
   const layer = layersById.get(id);
   if (!layer) return;
@@ -238,9 +244,6 @@ function paintBuilding(id) {
 }
 
 function eraseBuilding(id) {
-  if (touchedThisStroke.has(id)) return;
-  touchedThisStroke.add(id);
-
   const layer = layersById.get(id);
   if (!layer) return;
   const existing = annotations[id];
@@ -272,58 +275,25 @@ function eraseBuilding(id) {
   updateProgress();
 }
 
-// ─── Touch / mouse (brush+erase only) ────────────────────────────────────────
-const mapEl = map.getContainer();
-
+// ─── Brush wiring ────────────────────────────────────────────────────────────
 function isEditMode() { return mode !== "idle"; }
-function isBrushMode() { return mode === "brush" || mode === "erase"; }
 
+const brush = setupBrush(map, {
+  getMode: () => mode,
+  onPaint: paintBuilding,
+  onErase: eraseBuilding,
+  layersById,
+  minZoom: MIN_ZOOM,
+  radiusPx: BRUSH_RADIUS_PX,
+  onZoomBlocked: () => showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`),
+});
+
+// Detail mode still wants map dragging disabled so single-tap selects
+// a building cleanly. The brush helper only governs brush/erase, so
+// we override the drag policy here for the broader "edit mode" set.
 function applyMapDragPolicy() {
   if (isEditMode()) map.dragging.disable();
   else map.dragging.enable();
-}
-
-function clientToContainerPoint(t) {
-  const rect = mapEl.getBoundingClientRect();
-  return L.point(t.clientX - rect.left, t.clientY - rect.top);
-}
-
-mapEl.addEventListener("touchstart", (e) => {
-  if (!isBrushMode()) return;
-  if (e.touches.length >= 2) {
-    map.dragging.enable();
-    isPainting = false;
-    return;
-  }
-  if (map.getZoom() < MIN_ZOOM) {
-    showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`);
-    return;
-  }
-  e.preventDefault();
-  map.dragging.disable();
-  isPainting = true;
-  touchedThisStroke = new Set();
-  paintAtPoint(clientToContainerPoint(e.touches[0]));
-}, { passive: false });
-
-mapEl.addEventListener("touchmove", (e) => {
-  if (!isBrushMode()) return;
-  if (e.touches.length >= 2) {
-    isPainting = false;
-    map.dragging.enable();
-    return;
-  }
-  if (!isPainting) return;
-  e.preventDefault();
-  paintAtPoint(clientToContainerPoint(e.touches[0]));
-}, { passive: false });
-
-mapEl.addEventListener("touchend", () => { isPainting = false; }, { passive: false });
-
-function paintAtPoint(containerPoint) {
-  const ids = hitTest(map, layersById, containerPoint, BRUSH_RADIUS_PX);
-  if (mode === "brush") ids.forEach(paintBuilding);
-  else if (mode === "erase") ids.forEach(eraseBuilding);
 }
 
 // ─── Detail dialog ───────────────────────────────────────────────────────────

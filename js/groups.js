@@ -1,4 +1,4 @@
-// js/groups.js — shared group definitions.
+// js/groups.js — shared domain constants.
 
 export const GROUPS = [
   { id: "Stadt",            color: "#e74c3c" },
@@ -12,5 +12,16 @@ export const GROUPS = [
 ];
 
 export const GROUP_NAMES = GROUPS.map(g => g.id);
-
 export const GROUP_COLOR = Object.fromEntries(GROUPS.map(g => [g.id, g.color]));
+
+export const DAYS = [
+  { n: 1, color: "#e74c3c", label: "Tag 1" },
+  { n: 2, color: "#e67e22", label: "Tag 2" },
+  { n: 3, color: "#2ecc71", label: "Tag 3" },
+  { n: 4, color: "#3498db", label: "Tag 4" }
+];
+
+export const PERIODS = [
+  { id: "morning",   label: "Vor Mittag",  short: "VM" },
+  { id: "afternoon", label: "Nach Mittag", short: "NM" }
+];
