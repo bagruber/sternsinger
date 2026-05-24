@@ -5,6 +5,7 @@ import {
   fetchAllGroupAccess, upsertGroupAccess, deleteGroupAccess
 } from "./api.js";
 import { setupBrush } from "./brush.js";
+import { createCuller } from "./map-util.js";
 
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
@@ -16,7 +17,7 @@ let assignments = {};           // building_id → group_id
 let access = {};                // group_id → Set<granted_group_id>
 let history = [];               // [{ id, prev: group_id|null }]
 let layersById = new Map();
-let buildingLayer;
+let culler;
 
 // Pending writes, keyed by building_id. Value is the target group_id, or
 // null to mean "delete this assignment". Drained by a serialized chain so
@@ -129,17 +130,22 @@ async function loadAll() {
 }
 
 async function renderBuildings() {
-  const res = await fetch("./data/buildings.geojson");
-  const geojson = await res.json();
-  if (buildingLayer) map.removeLayer(buildingLayer);
-  layersById.clear();
-
-  buildingLayer = L.geoJSON(geojson, {
-    style: feature => buildingStyle(feature.properties.id),
-    onEachFeature: (feature, layer) => {
-      layersById.set(feature.properties.id, layer);
-    }
-  }).addTo(map);
+  if (!culler) {
+    const res = await fetch("./data/buildings.geojson");
+    const geojson = await res.json();
+    const features = geojson.features.map(f => ({ id: f.properties.id, feature: f }));
+    const layerGroup = L.layerGroup().addTo(map);
+    culler = createCuller(map, {
+      features,
+      layersById,
+      layerGroup,
+      styleFor: buildingStyle,
+      padFactor: 0.3,
+      maxLayers: 1000,
+    });
+  } else {
+    culler.refresh();
+  }
 }
 
 function buildingStyle(id) {

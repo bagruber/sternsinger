@@ -6,6 +6,7 @@ import {
 } from "./api.js";
 import { GROUP_NAMES as GROUPS, DAYS } from "./groups.js";
 import { setupBrush } from "./brush.js";
+import { createCuller } from "./map-util.js";
 
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
@@ -22,7 +23,7 @@ let assignments = {};       // building_id → group_id (territory)
 let allowedGroups = new Set();  // groups whose territory I can paint
 let history = [];           // [{id, prev: ann|null}]
 let layersById = new Map();
-let buildingLayer;
+let culler;          // viewport culler — created on first render
 
 // ─── Map ─────────────────────────────────────────────────────────────────────
 const map = L.map("map", {
@@ -145,20 +146,29 @@ async function loadAnnotations() {
 }
 
 async function renderBuildings() {
-  const res = await fetch("./data/buildings.geojson");
-  const geojson = await res.json();
-  if (buildingLayer) map.removeLayer(buildingLayer);
-  layersById.clear();
-
-  buildingLayer = L.geoJSON(geojson, {
-    style: feature => buildingStyle(feature.properties.id),
-    onEachFeature: (feature, layer) => {
-      const id = feature.properties.id;
-      layersById.set(id, layer);
-      attachLayerHandlers(id, layer);
-      bindBadge(id, layer);
-    }
-  }).addTo(map);
+  if (!culler) {
+    const res = await fetch("./data/buildings.geojson");
+    const geojson = await res.json();
+    const features = geojson.features.map(f => ({ id: f.properties.id, feature: f }));
+    const layerGroup = L.layerGroup().addTo(map);
+    culler = createCuller(map, {
+      features,
+      layersById,
+      layerGroup,
+      styleFor: buildingStyle,
+      onLayerCreated: (id, layer) => {
+        attachLayerHandlers(id, layer);
+        bindBadge(id, layer);
+      },
+      padFactor: 0.3,
+      maxLayers: 1000,
+    });
+  } else {
+    // Data reload — re-apply current styles to whatever's on screen.
+    culler.refresh();
+    // Re-bind tooltips since annotations may have changed.
+    for (const [id, layer] of layersById) bindBadge(id, layer);
+  }
 }
 
 function attachLayerHandlers(id, layer) {
