@@ -31,16 +31,37 @@ export function createCuller(map, {
 
   function cull() {
     timer = null;
-    const padded = map.getBounds().pad(padFactor);
-    let target = indexed.filter(f => bboxIntersects(f.bbox, padded));
-    if (target.length > maxLayers) {
-      // Sort by squared distance to viewport centre; keep the closest.
-      const c = map.getCenter();
-      target.sort((a, b) =>
-        squaredCenterDist(a.bbox, c) - squaredCenterDist(b.bbox, c)
-      );
-      target = target.slice(0, maxLayers);
+    const visible = map.getBounds();
+    const padded  = visible.pad(padFactor);
+
+    // Two-pass: anything actually inside the viewport renders
+    // unconditionally; the buffer ring around it fills in only up to
+    // maxLayers. This way zooming out still paints the whole visible
+    // area — the cap protects panning headroom, not the viewport itself.
+    const inVisible = [];
+    const inBuffer  = [];
+    for (const f of indexed) {
+      if (bboxIntersects(f.bbox, visible)) {
+        inVisible.push(f);
+      } else if (bboxIntersects(f.bbox, padded)) {
+        inBuffer.push(f);
+      }
     }
+
+    let target = inVisible;
+    const remaining = Math.max(0, maxLayers - inVisible.length);
+    if (remaining > 0 && inBuffer.length > 0) {
+      if (inBuffer.length > remaining) {
+        const c = map.getCenter();
+        inBuffer.sort((a, b) =>
+          squaredCenterDist(a.bbox, c) - squaredCenterDist(b.bbox, c)
+        );
+        target = target.concat(inBuffer.slice(0, remaining));
+      } else {
+        target = target.concat(inBuffer);
+      }
+    }
+
     const wanted = new Set(target.map(f => f.id));
 
     // Remove layers that fell out of view.
