@@ -2,7 +2,8 @@
 import { GROUPS, GROUP_COLOR } from "./groups.js";
 import {
   fetchAllAssignments, upsertAssignmentsBulk, deleteAssignmentsBulk,
-  fetchAllGroupAccess, upsertGroupAccess, deleteGroupAccess
+  fetchAllGroupAccess, upsertGroupAccess, deleteGroupAccess,
+  setPriorityBulk
 } from "./api.js";
 import { setupBrush } from "./brush.js";
 import { createCuller } from "./map-util.js";
@@ -12,9 +13,10 @@ const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
 const UNASSIGNED_FILL = "#c8c8c8";
 
-let mode = "idle";              // idle | brush | erase
+let mode = "idle";              // idle | brush | erase | priority
 let currentGroup = localStorage.getItem("adminCurrentGroup") || GROUPS[0].id;
 let assignments = {};           // building_id → group_id
+let priorities = new Set();     // building_ids flagged as "easily forgotten"
 let access = {};                // group_id → Set<granted_group_id>
 let history = [];               // [{ id, prev: group_id|null }]
 let layersById = new Map();
@@ -24,6 +26,8 @@ let culler;
 // null to mean "delete this assignment". Drained by a serialized chain so
 // new items queued while a flush is in flight always get a follow-up flush.
 let pending = new Map();
+// Separate map for priority toggles; flushed alongside the assignment batch.
+let pendingPriority = new Map(); // building_id → bool target state
 let flushChain = Promise.resolve();
 let heartbeat = null;
 
@@ -119,7 +123,11 @@ async function loadAll() {
       fetchAllGroupAccess().catch(e => { console.warn("access load failed:", e.message); return []; })
     ]);
     assignments = {};
-    assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
+    priorities = new Set();
+    assignRows.forEach(r => {
+      assignments[r.building_id] = r.group_id;
+      if (r.is_priority) priorities.add(r.building_id);
+    });
     access = {};
     accessRows.forEach(r => ensureAccessSet(r.group_id).add(r.granted_group_id));
   } catch (e) {
@@ -151,9 +159,16 @@ async function renderBuildings() {
 
 function buildingStyle(id) {
   const g = assignments[id];
-  if (!g) return { color: "#555", weight: 1, fillColor: UNASSIGNED_FILL, fillOpacity: 0.25 };
+  const prio = priorities.has(id);
+  if (!g) {
+    return prio
+      ? { color: "#ffc107", weight: 3, dashArray: "6 4", fillColor: UNASSIGNED_FILL, fillOpacity: 0.4 }
+      : { color: "#555", weight: 1, fillColor: UNASSIGNED_FILL, fillOpacity: 0.25 };
+  }
   const fill = GROUP_COLOR[g] || "#888";
-  return { color: "#222", weight: 1.5, fillColor: fill, fillOpacity: 0.7 };
+  return prio
+    ? { color: "#ffc107", weight: 3.5, dashArray: "6 4", fillColor: fill, fillOpacity: 0.85 }
+    : { color: "#222", weight: 1.5, fillColor: fill, fillOpacity: 0.7 };
 }
 
 // ─── Assign / Unassign (called once per building per stroke by the brush) ───
@@ -179,10 +194,29 @@ function unassignBuilding(id) {
 
   history.push({ id, prev });
   delete assignments[id];
+  priorities.delete(id);   // priority is meaningless without an assignment
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
 
   queue(id, null);
+}
+
+// Toggle "easily-forgotten" flag for a building. Skips unassigned ones —
+// priority lives on the assignment row, so a building must belong to some
+// group first.
+function togglePriority(id) {
+  const layer = layersById.get(id);
+  if (!layer) return;
+  if (!assignments[id]) {
+    showToast("Erst der Gruppe zuweisen");
+    return;
+  }
+  const next = !priorities.has(id);
+  if (next) priorities.add(id); else priorities.delete(id);
+  layer.setStyle(buildingStyle(id));
+  if (navigator.vibrate) navigator.vibrate(8);
+  pendingPriority.set(id, next);
+  scheduleHeartbeat();
 }
 
 // ─── Pending-write queue + serialized flush ───
@@ -203,9 +237,11 @@ function flushPending() {
 }
 
 async function doFlush() {
-  if (pending.size === 0) return;
+  if (pending.size === 0 && pendingPriority.size === 0) return;
   const batch = pending;
+  const prioBatch = pendingPriority;
   pending = new Map();
+  pendingPriority = new Map();
 
   const toUpsert = [];
   const toDelete = [];
@@ -213,14 +249,29 @@ async function doFlush() {
     if (g === null) toDelete.push(id);
     else toUpsert.push({ building_id: id, group_id: g });
   }
+  const prioOn = [];
+  const prioOff = [];
+  for (const [id, v] of prioBatch) {
+    (v ? prioOn : prioOff).push(id);
+  }
+
   try {
+    // Assignments first: priority lives on the assignment row, so a
+    // brand-new assignment must exist before we can PATCH its priority.
+    // (Existing rows' is_priority is preserved by the partial upsert.)
     if (toUpsert.length) await upsertAssignmentsBulk(toUpsert);
     if (toDelete.length) await deleteAssignmentsBulk(toDelete);
-    showToast(`${batch.size} gespeichert`);
+    if (prioOn.length)   await setPriorityBulk(prioOn, true);
+    if (prioOff.length)  await setPriorityBulk(prioOff, false);
+    const total = batch.size + prioBatch.size;
+    showToast(`${total} gespeichert`);
   } catch (e) {
     console.warn("flush failed:", e);
     for (const [id, g] of batch) {
       if (!pending.has(id)) pending.set(id, g);
+    }
+    for (const [id, v] of prioBatch) {
+      if (!pendingPriority.has(id)) pendingPriority.set(id, v);
     }
     showToast(`Fehler beim Speichern: ${e.message}`);
     scheduleHeartbeat();
@@ -232,6 +283,7 @@ const brush = setupBrush(map, {
   getMode: () => mode,
   onPaint: assignBuilding,
   onErase: unassignBuilding,
+  onPriorityToggle: togglePriority,
   onStrokeEnd: flushPending,
   layersById,
   minZoom: MIN_ZOOM,
@@ -264,7 +316,8 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
     document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     brush.refreshDragPolicy();
-    document.body.classList.toggle("edit-mode", mode === "brush" || mode === "erase");
+    const isBrushy = mode === "brush" || mode === "erase" || mode === "priority";
+    document.body.classList.toggle("edit-mode", isBrushy);
     flushPending();
   });
 });
@@ -281,7 +334,7 @@ if (homeLink) {
   homeLink.addEventListener("click", async (e) => {
     e.preventDefault();
     const href = homeLink.href;
-    while (pending.size > 0) {
+    while (pending.size > 0 || pendingPriority.size > 0) {
       await flushPending();
     }
     await flushChain;
@@ -291,7 +344,7 @@ if (homeLink) {
 
 map.on("zoom", () => {
   const w = document.getElementById("zoom-warning");
-  const isBrush = mode === "brush" || mode === "erase";
+  const isBrush = mode === "brush" || mode === "erase" || mode === "priority";
   w.classList.toggle("hidden", map.getZoom() >= MIN_ZOOM || !isBrush);
 });
 

@@ -20,6 +20,7 @@ export function setupBrush(map, {
   getMode,
   onPaint,
   onErase,
+  onPriorityToggle,   // optional — fires once per building per stroke in "priority" mode
   onStrokeEnd,
   layersById,
   minZoom,
@@ -32,7 +33,7 @@ export function setupBrush(map, {
 
   function isBrushMode() {
     const m = getMode();
-    return m === "brush" || m === "erase";
+    return m === "brush" || m === "erase" || m === "priority";
   }
 
   function clientToContainerPoint(t) {
@@ -44,8 +45,9 @@ export function setupBrush(map, {
     if (touchedThisStroke.has(id)) return;
     touchedThisStroke.add(id);
     const mode = getMode();
-    if (mode === "brush") onPaint?.(id);
-    else if (mode === "erase") onErase?.(id);
+    if (mode === "brush")         onPaint?.(id);
+    else if (mode === "erase")    onErase?.(id);
+    else if (mode === "priority") onPriorityToggle?.(id);
   }
 
   function paintAtPoint(containerPoint) {

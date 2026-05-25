@@ -46,6 +46,7 @@ drop table if exists building_assignments;
 create table building_assignments (
   building_id text primary key,
   group_id    text not null,
+  is_priority boolean not null default false,
   updated_at  timestamp default now()
 );
 

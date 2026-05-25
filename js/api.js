@@ -213,7 +213,7 @@ export async function upsertGroupAmount({ group_id, day, period, amount_cents, n
 export async function fetchAllAssignments() {
   const cached = cacheRead("assignments");
   if (cached) return cached;
-  const data = await fetchAllPaged(`${SUPABASE_URL}/rest/v1/building_assignments?select=building_id,group_id,updated_at`);
+  const data = await fetchAllPaged(`${SUPABASE_URL}/rest/v1/building_assignments?select=building_id,group_id,is_priority,updated_at`);
   cacheWrite("assignments", data);
   return data;
 }
@@ -257,6 +257,21 @@ export async function deleteAssignmentsBulk(building_ids) {
     `${SUPABASE_URL}/rest/v1/building_assignments?building_id=in.(${inList})`,
     headers(),
     undefined
+  );
+  invalidateCache("assignments");
+}
+
+// PATCH the is_priority flag for a set of already-assigned buildings.
+// Buildings without an assignment row are silently skipped server-side
+// (the filter matches nothing).
+export async function setPriorityBulk(building_ids, is_priority) {
+  if (!building_ids.length) return;
+  const inList = building_ids.map(encodeURIComponent).join(",");
+  await fetchWrite(
+    "PATCH",
+    `${SUPABASE_URL}/rest/v1/building_assignments?building_id=in.(${inList})`,
+    headers(),
+    JSON.stringify({ is_priority })
   );
   invalidateCache("assignments");
 }

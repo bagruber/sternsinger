@@ -21,6 +21,7 @@ let groupId = "";
 let annotations = {};       // building_id → own annotation
 let foreignAnn = {};        // building_id → { group_id, color } for other groups (display-only)
 let assignments = {};       // building_id → group_id (territory)
+let priorities = new Set(); // building_ids the admin flagged as "easily forgotten"
 let allowedGroups = new Set();  // groups whose territory I can paint
 let history = [];           // [{id, prev: ann|null}]
 let layersById = new Map();
@@ -134,7 +135,11 @@ async function loadAnnotations() {
       }
     });
     assignments = {};
-    assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
+    priorities = new Set();
+    assignRows.forEach(r => {
+      assignments[r.building_id] = r.group_id;
+      if (r.is_priority) priorities.add(r.building_id);
+    });
     allowedGroups = new Set([groupId]);
     accessRows.forEach(r => {
       if (r.group_id === groupId) allowedGroups.add(r.granted_group_id);
@@ -194,23 +199,36 @@ function isAllowed(buildingId) {
 function buildingStyle(id) {
   const ann = annotations[id];
   const allowed = isAllowed(id);
+  const prio = priorities.has(id) && allowed;   // only emphasise in own territory
 
-  // Own annotation always wins.
+  let base;
   if (ann) {
+    // Own annotation always wins.
     const fill = ann.color || NEUTRAL_FILL;
-    return { color: "#555", weight: 1.5, fillColor: fill, fillOpacity: 0.85 };
+    base = { color: "#555", weight: 1.5, fillColor: fill, fillOpacity: 0.85 };
+  } else if (allowed) {
+    // My territory, unpainted — highlighted "available".
+    base = { color: "#555", weight: 1.5, fillColor: "#eef2fb", fillOpacity: 0.6 };
+  } else if (foreignAnn[id]) {
+    // Foreign group's paint — dimmed colour hint.
+    base = { color: "#3a3d4a", weight: 0.5, fillColor: foreignAnn[id].color, fillOpacity: 0.18 };
+  } else {
+    // Other territory unpainted, or unassigned — silhouette.
+    base = { color: "#3a3d4a", weight: 0.4, fillColor: "#5a5f70", fillOpacity: 0.14 };
   }
-  // My territory, unpainted — highlighted "available".
-  if (allowed) {
-    return { color: "#555", weight: 1.5, fillColor: "#eef2fb", fillOpacity: 0.6 };
+
+  if (prio) {
+    // Eye-catching: thick gold dashed border + slightly bumped opacity
+    // so the building reads as "don't miss this one".
+    return {
+      ...base,
+      color: "#ffc107",
+      weight: 3.5,
+      dashArray: "6 4",
+      fillOpacity: Math.max(base.fillOpacity, 0.7),
+    };
   }
-  // Foreign group's paint — dimmed colour hint so the user still sees activity.
-  const foreign = foreignAnn[id];
-  if (foreign) {
-    return { color: "#3a3d4a", weight: 0.5, fillColor: foreign.color, fillOpacity: 0.18 };
-  }
-  // Everything else (other territory unpainted, or unassigned) — silhouette.
-  return { color: "#3a3d4a", weight: 0.4, fillColor: "#5a5f70", fillOpacity: 0.14 };
+  return base;
 }
 
 function bindBadge(id, layer) {
