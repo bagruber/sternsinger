@@ -48,6 +48,110 @@ export function invalidateCache(key) {
   try { sessionStorage.removeItem(`cache:${key}`); } catch {}
 }
 
+// ─── Offline write queue ────────────────────────────────────────────────────
+// Short offline gaps shouldn't drop paint actions. Writes that fail with a
+// network error (or a transient 5xx) get queued in localStorage and replayed
+// when the network returns. Last-write-wins by virtue of FIFO replay — if
+// you paint A red, then A blue, the second op is sent last and sticks.
+
+const QUEUE_KEY = "writeQueue";
+
+function loadQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); }
+  catch { return []; }
+}
+
+function saveQueue(q) {
+  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch {}
+}
+
+export function pendingWriteCount() {
+  return loadQueue().length;
+}
+
+const queueListeners = new Set();
+export function onQueueChange(cb) {
+  queueListeners.add(cb);
+  return () => queueListeners.delete(cb);
+}
+function notifyQueueChange() {
+  for (const cb of queueListeners) {
+    try { cb(pendingWriteCount()); } catch {}
+  }
+}
+
+function enqueueWrite(op) {
+  const q = loadQueue();
+  q.push(op);
+  saveQueue(q);
+  notifyQueueChange();
+}
+
+// Internal: perform a write, queue on failure that's plausibly transient.
+async function fetchWrite(method, url, hdr, body) {
+  try {
+    const res = await fetch(url, { method, headers: hdr, body });
+    if (res.ok) return;
+    // 5xx → likely transient; queue and surface success to caller so
+    // the local state stays consistent. 4xx → real client error, throw.
+    if (res.status >= 500) {
+      enqueueWrite({ method, url, headers: hdr, body });
+      return;
+    }
+    throw new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    // TypeError from fetch === network error / offline.
+    if (e instanceof TypeError) {
+      enqueueWrite({ method, url, headers: hdr, body });
+      return;
+    }
+    throw e;
+  }
+}
+
+let draining = false;
+export async function drainWriteQueue() {
+  if (draining || !navigator.onLine) return;
+  draining = true;
+  try {
+    while (true) {
+      let q = loadQueue();
+      if (q.length === 0) break;
+      const op = q[0];
+      try {
+        const res = await fetch(op.url, {
+          method: op.method,
+          headers: op.headers,
+          body: op.body
+        });
+        if (!res.ok) {
+          if (res.status >= 500) break;          // try again later
+          console.warn(`drop queued op (HTTP ${res.status})`, op);
+        }
+      } catch (e) {
+        if (e instanceof TypeError) break;       // back offline
+        console.warn("drop queued op (error)", e, op);
+      }
+      // Pop the head — reload first so concurrent enqueues aren't lost.
+      q = loadQueue();
+      q.shift();
+      saveQueue(q);
+      notifyQueueChange();
+    }
+  } finally {
+    draining = false;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("online", drainWriteQueue);
+  window.addEventListener("load", drainWriteQueue);
+  // Periodic safety net for missed "online" events / flaky connections.
+  setInterval(() => {
+    if (navigator.onLine && pendingWriteCount() > 0) drainWriteQueue();
+  }, 30 * 1000);
+}
+
 async function fetchAllPaged(baseUrl) {
   const sep = baseUrl.includes("?") ? "&" : "?";
   const all = [];
@@ -77,13 +181,12 @@ export async function upsertAnnotation({
   period = null, color = null, comment = null,
   is_attention = false, is_important = false
 }) {
-  const url = `${SUPABASE_URL}/rest/v1/annotations`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ building_id, group_id, day, period, color, comment, is_attention, is_important })
-  });
-  if (!res.ok) throw new Error(`upsertAnnotation failed: ${res.status}`);
+  await fetchWrite(
+    "POST",
+    `${SUPABASE_URL}/rest/v1/annotations`,
+    { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    JSON.stringify({ building_id, group_id, day, period, color, comment, is_attention, is_important })
+  );
 }
 
 export async function fetchGroupAmount({ group_id, day, period }) {
@@ -99,13 +202,12 @@ export async function fetchAllGroupAmounts() {
 }
 
 export async function upsertGroupAmount({ group_id, day, period, amount_cents, notes = null }) {
-  const url = `${SUPABASE_URL}/rest/v1/group_amounts`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ group_id, day, period, amount_cents, notes })
-  });
-  if (!res.ok) throw new Error(`upsertGroupAmount failed: ${res.status}`);
+  await fetchWrite(
+    "POST",
+    `${SUPABASE_URL}/rest/v1/group_amounts`,
+    { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    JSON.stringify({ group_id, day, period, amount_cents, notes })
+  );
 }
 
 export async function fetchAllAssignments() {
@@ -117,41 +219,45 @@ export async function fetchAllAssignments() {
 }
 
 export async function upsertAssignment({ building_id, group_id }) {
-  const url = `${SUPABASE_URL}/rest/v1/building_assignments`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ building_id, group_id })
-  });
-  if (!res.ok) throw new Error(`upsertAssignment failed: ${res.status}`);
+  await fetchWrite(
+    "POST",
+    `${SUPABASE_URL}/rest/v1/building_assignments`,
+    { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    JSON.stringify({ building_id, group_id })
+  );
   invalidateCache("assignments");
 }
 
 export async function deleteAssignment({ building_id }) {
-  const url = `${SUPABASE_URL}/rest/v1/building_assignments?building_id=eq.${encodeURIComponent(building_id)}`;
-  const res = await fetch(url, { method: "DELETE", headers: headers() });
-  if (!res.ok) throw new Error(`deleteAssignment failed: ${res.status}`);
+  await fetchWrite(
+    "DELETE",
+    `${SUPABASE_URL}/rest/v1/building_assignments?building_id=eq.${encodeURIComponent(building_id)}`,
+    headers(),
+    undefined
+  );
   invalidateCache("assignments");
 }
 
 export async function upsertAssignmentsBulk(rows) {
   if (!rows.length) return;
-  const url = `${SUPABASE_URL}/rest/v1/building_assignments`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify(rows)
-  });
-  if (!res.ok) throw new Error(`upsertAssignmentsBulk failed: ${res.status}`);
+  await fetchWrite(
+    "POST",
+    `${SUPABASE_URL}/rest/v1/building_assignments`,
+    { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    JSON.stringify(rows)
+  );
   invalidateCache("assignments");
 }
 
 export async function deleteAssignmentsBulk(building_ids) {
   if (!building_ids.length) return;
   const inList = building_ids.map(encodeURIComponent).join(",");
-  const url = `${SUPABASE_URL}/rest/v1/building_assignments?building_id=in.(${inList})`;
-  const res = await fetch(url, { method: "DELETE", headers: headers() });
-  if (!res.ok) throw new Error(`deleteAssignmentsBulk failed: ${res.status}`);
+  await fetchWrite(
+    "DELETE",
+    `${SUPABASE_URL}/rest/v1/building_assignments?building_id=in.(${inList})`,
+    headers(),
+    undefined
+  );
   invalidateCache("assignments");
 }
 
@@ -164,27 +270,32 @@ export async function fetchAllGroupAccess() {
 }
 
 export async function upsertGroupAccess({ group_id, granted_group_id }) {
-  const url = `${SUPABASE_URL}/rest/v1/group_access`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify({ group_id, granted_group_id })
-  });
-  if (!res.ok) throw new Error(`upsertGroupAccess failed: ${res.status}`);
+  await fetchWrite(
+    "POST",
+    `${SUPABASE_URL}/rest/v1/group_access`,
+    { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
+    JSON.stringify({ group_id, granted_group_id })
+  );
   invalidateCache("access");
 }
 
 export async function deleteGroupAccess({ group_id, granted_group_id }) {
-  const url = `${SUPABASE_URL}/rest/v1/group_access`
-    + `?group_id=eq.${encodeURIComponent(group_id)}`
-    + `&granted_group_id=eq.${encodeURIComponent(granted_group_id)}`;
-  const res = await fetch(url, { method: "DELETE", headers: headers() });
-  if (!res.ok) throw new Error(`deleteGroupAccess failed: ${res.status}`);
+  await fetchWrite(
+    "DELETE",
+    `${SUPABASE_URL}/rest/v1/group_access`
+      + `?group_id=eq.${encodeURIComponent(group_id)}`
+      + `&granted_group_id=eq.${encodeURIComponent(granted_group_id)}`,
+    headers(),
+    undefined
+  );
   invalidateCache("access");
 }
 
 export async function deleteAnnotation({ building_id, group_id }) {
-  const url = `${SUPABASE_URL}/rest/v1/annotations?building_id=eq.${encodeURIComponent(building_id)}&group_id=eq.${encodeURIComponent(group_id)}`;
-  const res = await fetch(url, { method: "DELETE", headers: headers() });
-  if (!res.ok) throw new Error(`deleteAnnotation failed: ${res.status}`);
+  await fetchWrite(
+    "DELETE",
+    `${SUPABASE_URL}/rest/v1/annotations?building_id=eq.${encodeURIComponent(building_id)}&group_id=eq.${encodeURIComponent(group_id)}`,
+    headers(),
+    undefined
+  );
 }

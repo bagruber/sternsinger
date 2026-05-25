@@ -7,6 +7,7 @@ import {
   invalidateCache
 } from "./api.js";
 import { GROUP_NAMES as GROUPS, DAYS, PERIODS } from "./groups.js";
+import { setupSyncChip } from "./sync-chip.js";
 
 const PASSWORD = "sternsinger2027";
 
@@ -459,7 +460,10 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s).replace(/'/g, "&#39;"); }
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
-window.addEventListener("load", () => { if (window.lucide) lucide.createIcons(); });
+window.addEventListener("load", () => {
+  if (window.lucide) lucide.createIcons();
+  setupSyncChip("sync-chip");
+});
 
 (async () => {
   const ok = await authenticate();

@@ -7,6 +7,7 @@ import {
 import { GROUP_NAMES as GROUPS, DAYS } from "./groups.js";
 import { setupBrush } from "./brush.js";
 import { createCuller } from "./map-util.js";
+import { setupSyncChip } from "./sync-chip.js";
 
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
@@ -550,7 +551,10 @@ function showToast(msg) {
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────────────
-window.addEventListener("load", () => { if (window.lucide) lucide.createIcons(); });
+window.addEventListener("load", () => {
+  if (window.lucide) lucide.createIcons();
+  setupSyncChip("sync-chip");
+});
 renderDayPicker();
 renderGroupList();
 setupGroup();

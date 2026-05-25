@@ -584,6 +584,41 @@ body.admin { --bar-h: 148px; }
   opacity: 1;
 }
 
+/* ── SYNC CHIP (offline / pending writes) ── */
+#sync-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+#sync-chip.hidden { display: none; }
+#sync-chip svg { width: 12px; height: 12px; }
+#sync-chip .sync-count:empty { display: none; }
+
+#sync-chip[data-state="offline"] {
+  border-color: #e67e22;
+  color: #e67e22;
+}
+#sync-chip[data-state="syncing"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#sync-chip[data-state="syncing"] svg {
+  animation: sync-pulse 1.5s ease-in-out infinite;
+}
+@keyframes sync-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
+}
+
 /* ── PROGRESS CHIP ── */
 /* Secondary HUD element; small + de-emphasised. Inline with a "·"
    separator when there's room, stacked two-line on narrow phones. */
