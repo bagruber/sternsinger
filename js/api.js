@@ -211,11 +211,10 @@ export async function upsertGroupAmount({ group_id, day, period, amount_cents, n
 }
 
 export async function fetchAllAssignments() {
-  const cached = cacheRead("assignments");
-  if (cached) return cached;
-  const data = await fetchAllPaged(`${SUPABASE_URL}/rest/v1/building_assignments?select=building_id,group_id,is_priority,updated_at`);
-  cacheWrite("assignments", data);
-  return data;
+  // No client-side cache here: sessionStorage is per-tab, so changes
+  // made in one tab (admin) stayed invisible to another tab (group view)
+  // until the 60s TTL expired. Always-fresh is cheap enough.
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/building_assignments?select=building_id,group_id,is_priority,updated_at`);
 }
 
 export async function upsertAssignment({ building_id, group_id }) {
@@ -277,11 +276,8 @@ export async function setPriorityBulk(building_ids, is_priority) {
 }
 
 export async function fetchAllGroupAccess() {
-  const cached = cacheRead("access");
-  if (cached) return cached;
-  const data = await fetchAllPaged(`${SUPABASE_URL}/rest/v1/group_access?select=group_id,granted_group_id`);
-  cacheWrite("access", data);
-  return data;
+  // Same rationale as fetchAllAssignments — fresh each time.
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/group_access?select=group_id,granted_group_id`);
 }
 
 export async function upsertGroupAccess({ group_id, granted_group_id }) {

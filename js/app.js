@@ -117,7 +117,7 @@ async function loadAnnotations() {
   if (!groupId) return;
   try {
     const [annRows, assignRows, accessRows] = await Promise.all([
-      fetchAllAnnotations(),
+      fetchAllAnnotations().catch(e => { console.warn("annotations load failed:", e.message); return []; }),
       fetchAllAssignments().catch(e => { console.warn("assignments load failed:", e.message); return []; }),
       fetchAllGroupAccess().catch(e => { console.warn("access load failed:", e.message); return []; })
     ]);
