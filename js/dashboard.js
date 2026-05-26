@@ -214,13 +214,13 @@ function renderMobileMoney() {
 function renderSummary(rows) {
   const el = document.getElementById("dash-summary");
   const groups = new Set(rows.map(r => r.group_id)).size;
-  const withTag = rows.filter(r => r.is_attention || r.is_important).length;
+  const withTag = rows.filter(r => r.is_attention).length;
   const withComment = rows.filter(r => r.comment).length;
   el.innerHTML = `
     <div><strong>${rows.length}</strong> Markierungen</div>
     <div><strong>${groups}</strong> Gruppen aktiv</div>
     <div><strong>${withComment}</strong> Kommentare</div>
-    <div><strong>${withTag}</strong> Sondermarkierungen</div>
+    <div><strong>${withTag}</strong> Hinweise</div>
   `;
 }
 
@@ -246,20 +246,17 @@ function fillTable(blockId, data) {
 
 function renderSpecialList(rows) {
   const list = document.getElementById("special-items");
-  const specials = rows.filter(r => r.is_attention || r.is_important);
+  const specials = rows.filter(r => r.is_attention);
   if (specials.length === 0) {
-    list.innerHTML = `<li class="empty">Keine Sondermarkierungen.</li>`;
+    list.innerHTML = `<li class="empty">Keine Hinweise.</li>`;
     return;
   }
   list.innerHTML = "";
   specials.forEach(a => {
     const li = document.createElement("li");
-    const badges = [];
-    if (a.is_important) badges.push("★");
-    if (a.is_attention) badges.push("!");
     const periodTxt = a.period === "morning" ? "VM" : a.period === "afternoon" ? "NM" : "";
     li.innerHTML = `
-      <span class="badge">${badges.join(" ")}</span>
+      <span class="badge">!</span>
       <div>
         <div>${escapeHtml(a.group_id)} · Tag ${a.day}${periodTxt ? " " + periodTxt : ""}</div>
         ${a.comment ? `<div class="meta">${escapeHtml(a.comment)}</div>` : ""}
@@ -305,8 +302,7 @@ async function renderMap(rows) {
         `<strong>${escapeHtml(a.group_id)}</strong>`,
         `Tag ${a.day}${a.period ? ` (${a.period === "morning" ? "vor" : "nach"} Mittag)` : ""}`
       ];
-      if (a.is_important) parts.push("★ wichtig");
-      if (a.is_attention) parts.push("! Aufmerksamkeit");
+      if (a.is_attention) parts.push("! Wichtig");
       if (a.comment) parts.push(`<em>${escapeHtml(a.comment)}</em>`);
       layer.bindPopup(parts.join("<br/>"));
     }

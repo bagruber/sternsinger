@@ -11,6 +11,9 @@ import { setupSyncChip } from "./sync-chip.js";
 
 const MIN_ZOOM = 16;
 const BRUSH_RADIUS_PX = 40;
+// Priority is admin-flagged, mostly single buildings — tight radius so a
+// single tap usually hits exactly one building.
+const PRIORITY_RADIUS_PX = 12;
 const UNASSIGNED_FILL = "#c8c8c8";
 
 let mode = "idle";              // idle | brush | erase | priority
@@ -287,7 +290,7 @@ const brush = setupBrush(map, {
   onStrokeEnd: flushPending,
   layersById,
   minZoom: MIN_ZOOM,
-  radiusPx: BRUSH_RADIUS_PX,
+  radiusPx: (m) => m === "priority" ? PRIORITY_RADIUS_PX : BRUSH_RADIUS_PX,
   onZoomBlocked: () => showToast(`Zoom näher heran (mind. Stufe ${MIN_ZOOM})`),
 });
 

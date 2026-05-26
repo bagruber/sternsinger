@@ -1,32 +1,33 @@
 -- ============================================================
 -- Supabase Schema: Gebäude-Marker App
 -- Run this in: Supabase Dashboard → SQL Editor
--- (Drops and recreates the annotations table — no data preserved.)
+--
+-- DESTRUCTIVE: drops and recreates all four tables. Existing data
+-- is wiped. Use for a fresh start / clean dry run.
 -- ============================================================
 
+-- ─── annotations ────────────────────────────────────────────
+-- Per-group paint marks. is_attention = "wichtige Info" (Ausrufezeichen).
 drop table if exists annotations;
-
 create table annotations (
-  id          uuid primary key default gen_random_uuid(),
-  building_id text not null,
-  group_id    text not null,
-  day          int     not null check (day between 1 and 4),
-  period       text    check (period in ('morning', 'afternoon')),
+  id           uuid primary key default gen_random_uuid(),
+  building_id  text not null,
+  group_id     text not null,
+  day          int  not null check (day between 1 and 4),
+  period       text check (period in ('morning', 'afternoon')),
   color        text,
   is_attention boolean not null default false,
-  is_important boolean not null default false,
   comment      text,
-  updated_at  timestamp default now(),
+  updated_at   timestamp default now(),
 
   unique (building_id, group_id)
 );
-
 create index if not exists idx_annotations_building on annotations(building_id);
 create index if not exists idx_annotations_group    on annotations(group_id);
 create index if not exists idx_annotations_day      on annotations(day);
 
+-- ─── group_amounts ──────────────────────────────────────────
 drop table if exists group_amounts;
-
 create table group_amounts (
   id           uuid primary key default gen_random_uuid(),
   group_id     text not null,
@@ -38,31 +39,31 @@ create table group_amounts (
 
   unique (group_id, day, period)
 );
-
 create index if not exists idx_group_amounts_group on group_amounts(group_id);
 
+-- ─── building_assignments ───────────────────────────────────
+-- One row per building. is_priority = admin-flagged "oft vergessen".
 drop table if exists building_assignments;
-
 create table building_assignments (
   building_id text primary key,
   group_id    text not null,
   is_priority boolean not null default false,
   updated_at  timestamp default now()
 );
-
 create index if not exists idx_building_assignments_group on building_assignments(group_id);
 
+-- ─── group_access ───────────────────────────────────────────
+-- (group_id) is granted painting access to (granted_group_id)'s buildings.
 drop table if exists group_access;
-
 create table group_access (
   group_id         text not null,
   granted_group_id text not null,
   updated_at       timestamp default now(),
   primary key (group_id, granted_group_id)
 );
-
 create index if not exists idx_group_access_group on group_access(group_id);
 
+-- ─── updated_at trigger ─────────────────────────────────────
 create or replace function update_updated_at()
 returns trigger as $$
 begin
@@ -91,13 +92,12 @@ create trigger group_access_updated_at
   before update on group_access
   for each row execute function update_updated_at();
 
--- ============================================================
--- Row Level Security — MVP: offen für anon. Vor Produktion härten.
--- ============================================================
-alter table annotations  enable row level security;
-alter table group_amounts enable row level security;
+-- ─── Row Level Security ─────────────────────────────────────
+-- MVP: open for anon. Vor Produktion härten.
+alter table annotations          enable row level security;
+alter table group_amounts        enable row level security;
 alter table building_assignments enable row level security;
-alter table group_access enable row level security;
+alter table group_access         enable row level security;
 
 drop policy if exists "anon read annotations"  on annotations;
 drop policy if exists "anon write annotations" on annotations;

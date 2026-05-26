@@ -24,7 +24,7 @@ export function setupBrush(map, {
   onStrokeEnd,
   layersById,
   minZoom,
-  radiusPx,
+  radiusPx,           // number, or (mode) => number — useful when one mode wants a tighter brush
   onZoomBlocked,
 }) {
   const mapEl = map.getContainer();
@@ -51,7 +51,8 @@ export function setupBrush(map, {
   }
 
   function paintAtPoint(containerPoint) {
-    const ids = buildingsNearPoint(map, layersById, containerPoint, radiusPx);
+    const r = typeof radiusPx === "function" ? radiusPx(getMode()) : radiusPx;
+    const ids = buildingsNearPoint(map, layersById, containerPoint, r);
     ids.forEach(dispatch);
   }
 

@@ -127,7 +127,7 @@ async function loadAnnotations() {
       if (a.group_id === groupId) {
         annotations[a.building_id] = {
           day: a.day, period: a.period, color: a.color, comment: a.comment,
-          is_attention: !!a.is_attention, is_important: !!a.is_important
+          is_attention: !!a.is_attention
         };
       } else if (a.color) {
         // Only display-track foreign annotations that have a color.
@@ -236,7 +236,6 @@ function bindBadge(id, layer) {
   layer.unbindTooltip();
   if (!ann) return;
   const parts = [];
-  if (ann.is_important) parts.push("★");
   if (ann.is_attention) parts.push("!");
   if (ann.comment) parts.push("💬");
   if (parts.length === 0) return;
@@ -259,7 +258,7 @@ function paintBuilding(id) {
   history.push({ id, prev: null });
   annotations[id] = {
     day: currentDay, period: currentPeriod, color: day.color,
-    comment: null, is_attention: false, is_important: false
+    comment: null, is_attention: false
   };
   layer.setStyle({ fillColor: day.color, fillOpacity: 0.9 });
   setTimeout(() => layer.setStyle({ fillOpacity: 0.75 }), 120);
@@ -283,7 +282,7 @@ function eraseBuilding(id) {
 
   history.push({ id, prev: { ...existing } });
 
-  const stillHasContent = existing.is_attention || existing.is_important || existing.comment;
+  const stillHasContent = existing.is_attention || existing.comment;
   if (stillHasContent) {
     // Keep the row, just drop the color → neutral fill, tooltip stays.
     annotations[id] = { ...existing, color: null };
@@ -291,7 +290,7 @@ function eraseBuilding(id) {
     upsertAnnotation({
       building_id: id, group_id: groupId,
       day: existing.day, period: existing.period, color: null,
-      comment: existing.comment, is_attention: existing.is_attention, is_important: existing.is_important
+      comment: existing.comment, is_attention: existing.is_attention
     }).catch(e => console.warn("erase upsert failed:", e.message));
   } else {
     delete annotations[id];
@@ -333,7 +332,6 @@ function openDetailDialog(id) {
   // Local working copy (committed on Save).
   const draft = {
     color:        ann?.color ?? null,
-    is_important: ann?.is_important ?? false,
     is_attention: ann?.is_attention ?? false,
     comment:      ann?.comment ?? ""
   };
@@ -394,7 +392,7 @@ function openDetailDialog(id) {
 }
 
 function saveDetail(id, prev, draft) {
-  const empty = !draft.color && !draft.is_attention && !draft.is_important && !draft.comment;
+  const empty = !draft.color && !draft.is_attention && !draft.comment;
   const layer = layersById.get(id);
 
   history.push({ id, prev: prev ? { ...prev } : null });
@@ -417,8 +415,7 @@ function saveDetail(id, prev, draft) {
     day, period,
     color: draft.color,
     comment: draft.comment || null,
-    is_attention: !!draft.is_attention,
-    is_important: !!draft.is_important
+    is_attention: !!draft.is_attention
   };
   annotations[id] = next;
 
@@ -431,7 +428,7 @@ function saveDetail(id, prev, draft) {
     building_id: id, group_id: groupId,
     day: next.day, period: next.period,
     color: next.color, comment: next.comment,
-    is_attention: next.is_attention, is_important: next.is_important
+    is_attention: next.is_attention
   }).catch(e => console.warn("upsert failed:", e.message));
   updateProgress();
 }
@@ -527,7 +524,7 @@ function undo() {
     upsertAnnotation({
       building_id: id, group_id: groupId,
       day: prev.day, period: prev.period, color: prev.color,
-      comment: prev.comment, is_attention: prev.is_attention, is_important: prev.is_important
+      comment: prev.comment, is_attention: prev.is_attention
     }).catch(() => {});
   }
   if (navigator.vibrate) navigator.vibrate([5, 30, 5]);

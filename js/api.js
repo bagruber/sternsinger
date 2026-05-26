@@ -169,23 +169,23 @@ async function fetchAllPaged(baseUrl) {
 }
 
 export async function fetchAllAnnotations() {
-  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?select=building_id,group_id,day,period,color,comment,is_attention,is_important,updated_at`);
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?select=building_id,group_id,day,period,color,comment,is_attention,updated_at`);
 }
 
 export async function fetchAnnotations(groupId) {
-  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?group_id=eq.${encodeURIComponent(groupId)}&select=building_id,day,period,color,comment,is_attention,is_important,updated_at`);
+  return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?group_id=eq.${encodeURIComponent(groupId)}&select=building_id,day,period,color,comment,is_attention,updated_at`);
 }
 
 export async function upsertAnnotation({
   building_id, group_id, day,
   period = null, color = null, comment = null,
-  is_attention = false, is_important = false
+  is_attention = false
 }) {
   await fetchWrite(
     "POST",
     `${SUPABASE_URL}/rest/v1/annotations`,
     { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
-    JSON.stringify({ building_id, group_id, day, period, color, comment, is_attention, is_important })
+    JSON.stringify({ building_id, group_id, day, period, color, comment, is_attention })
   );
 }
 
