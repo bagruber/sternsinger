@@ -3,8 +3,7 @@ import {
   fetchAllAnnotations,
   fetchAllGroupAmounts,
   fetchAllAssignments,
-  upsertGroupAmount,
-  invalidateCache
+  upsertGroupAmount
 } from "./api.js";
 import { GROUP_NAMES as GROUPS, DAYS, PERIODS } from "./groups.js";
 import { setupSyncChip } from "./sync-chip.js";
@@ -13,7 +12,7 @@ const PASSWORD = "sternsinger2027";
 
 const filter = { day: "all", group: "all", period: "all" };
 let allAnnotations = [];
-let assignments = {};   // building_id → group_id
+let assignments = {};   // building_id → { group, priority } | undefined
 let amounts = new Map(); // `${group}|${day}|${period}` → { amount_cents, notes }
 let lastRefreshAt = 0;
 let refreshing = false;
@@ -121,12 +120,12 @@ function renderViews() {
 // what the user pokes at in the filter pills.
 function computeProgress() {
   const p = Object.fromEntries(GROUPS.map(g => [g, { painted: 0, assigned: 0 }]));
-  Object.entries(assignments).forEach(([_bid, g]) => {
-    if (p[g]) p[g].assigned++;
+  Object.values(assignments).forEach(a => {
+    if (p[a.group]) p[a.group].assigned++;
   });
   allAnnotations.forEach(a => {
     if (!a.color || !p[a.group_id]) return;
-    if (assignments[a.building_id] === a.group_id) p[a.group_id].painted++;
+    if (assignments[a.building_id]?.group === a.group_id) p[a.group_id].painted++;
   });
   return p;
 }
@@ -487,7 +486,9 @@ async function loadData() {
     allAnnotations = annRows;
     amounts = new Map(amtRows.map(r => [amountKey(r.group_id, r.day, r.period), { amount_cents: r.amount_cents, notes: r.notes }]));
     assignments = {};
-    assignRows.forEach(r => { assignments[r.building_id] = r.group_id; });
+    assignRows.forEach(r => {
+      assignments[r.building_id] = { group: r.group_id, priority: !!r.is_priority };
+    });
     lastRefreshAt = Date.now();
     updateLastRefreshLabel();
     return true;
@@ -502,9 +503,6 @@ async function refresh() {
   refreshing = true;
   const btn = document.getElementById("refresh-btn");
   btn?.classList.add("spinning");
-  // Explicit refresh: bypass any cached assignment/access data.
-  invalidateCache("assignments");
-  invalidateCache("access");
   try {
     const ok = await loadData();
     if (ok) {

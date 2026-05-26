@@ -1,4 +1,44 @@
 // js/api.js — Supabase REST client.
+//
+// ─── Record shapes ──────────────────────────────────────────────────────────
+// JSDoc typedefs so IDEs autocomplete + flag typos at call sites without
+// any build step. Mirror the supabase_schema.sql columns one-to-one.
+
+/**
+ * @typedef {Object} Annotation
+ * @property {string} building_id   - OSM way id, e.g. "w12345678"
+ * @property {string} group_id      - Sternsinger group name
+ * @property {1|2|3|4} day          - which evening (1..4)
+ * @property {"morning"|"afternoon"|null} period
+ * @property {string|null} color    - hex day colour, or null = tag/comment only
+ * @property {boolean} is_attention - "wichtige Info" (!), set by the group
+ * @property {string|null} comment
+ * @property {string} updated_at    - ISO timestamp
+ */
+
+/**
+ * @typedef {Object} Assignment
+ * @property {string} building_id
+ * @property {string} group_id      - which group owns this building's territory
+ * @property {boolean} is_priority  - admin-flagged "oft vergessen" (★)
+ * @property {string} updated_at
+ */
+
+/**
+ * @typedef {Object} GroupAccess
+ * @property {string} group_id          - the group being granted access
+ * @property {string} granted_group_id  - whose territory it may additionally paint
+ */
+
+/**
+ * @typedef {Object} GroupAmount
+ * @property {string} group_id
+ * @property {1|2|3|4} day
+ * @property {"morning"|"afternoon"} period
+ * @property {number} amount_cents
+ * @property {string|null} notes
+ * @property {string} updated_at
+ */
 
 const SUPABASE_URL = "https://kgrmlzlagahsjpsgatoc.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_8xrpeD4PUXFRBlz9n6g9NQ_2DULIHpV";
@@ -14,39 +54,6 @@ const headers = () => ({
 // ignores `limit` query params, so bulk fetches must paginate. Loop until
 // a page returns fewer rows than the page size.
 const PAGE_SIZE = 1000;
-
-// ─── sessionStorage cache ────────────────────────────────────────────────────
-// Bulk fetches dominate the cold load time when switching pages (admin ↔ app
-// ↔ dashboard). Cache slow-changing data so a quick round trip uses the cache
-// and only the actually-volatile annotations get re-fetched.
-//
-// Writers below call invalidateCache() to keep things honest when the user
-// themselves changes the data.
-
-const CACHE_TTL_MS = 60 * 1000;       // 60s — short enough to feel fresh
-
-function cacheRead(key) {
-  try {
-    const raw = sessionStorage.getItem(`cache:${key}`);
-    if (!raw) return null;
-    const { ts, data } = JSON.parse(raw);
-    if (Date.now() - ts > CACHE_TTL_MS) return null;
-    return data;
-  } catch { return null; }
-}
-
-function cacheWrite(key, data) {
-  try {
-    sessionStorage.setItem(`cache:${key}`, JSON.stringify({ ts: Date.now(), data }));
-  } catch {
-    // Quota exceeded — drop this entry so we don't half-poison future reads.
-    try { sessionStorage.removeItem(`cache:${key}`); } catch {}
-  }
-}
-
-export function invalidateCache(key) {
-  try { sessionStorage.removeItem(`cache:${key}`); } catch {}
-}
 
 // ─── Offline write queue ────────────────────────────────────────────────────
 // Short offline gaps shouldn't drop paint actions. Writes that fail with a
@@ -168,10 +175,12 @@ async function fetchAllPaged(baseUrl) {
   return all;
 }
 
+/** @returns {Promise<Annotation[]>} */
 export async function fetchAllAnnotations() {
   return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?select=building_id,group_id,day,period,color,comment,is_attention,updated_at`);
 }
 
+/** @param {string} groupId @returns {Promise<Annotation[]>} */
 export async function fetchAnnotations(groupId) {
   return fetchAllPaged(`${SUPABASE_URL}/rest/v1/annotations?group_id=eq.${encodeURIComponent(groupId)}&select=building_id,day,period,color,comment,is_attention,updated_at`);
 }
@@ -197,6 +206,7 @@ export async function fetchGroupAmount({ group_id, day, period }) {
   return rows[0] || null;
 }
 
+/** @returns {Promise<GroupAmount[]>} */
 export async function fetchAllGroupAmounts() {
   return fetchAllPaged(`${SUPABASE_URL}/rest/v1/group_amounts?select=group_id,day,period,amount_cents,notes,updated_at`);
 }
@@ -210,6 +220,7 @@ export async function upsertGroupAmount({ group_id, day, period, amount_cents, n
   );
 }
 
+/** @returns {Promise<Assignment[]>} */
 export async function fetchAllAssignments() {
   // No client-side cache here: sessionStorage is per-tab, so changes
   // made in one tab (admin) stayed invisible to another tab (group view)
@@ -224,7 +235,6 @@ export async function upsertAssignment({ building_id, group_id }) {
     { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
     JSON.stringify({ building_id, group_id })
   );
-  invalidateCache("assignments");
 }
 
 export async function deleteAssignment({ building_id }) {
@@ -234,7 +244,6 @@ export async function deleteAssignment({ building_id }) {
     headers(),
     undefined
   );
-  invalidateCache("assignments");
 }
 
 export async function upsertAssignmentsBulk(rows) {
@@ -245,7 +254,6 @@ export async function upsertAssignmentsBulk(rows) {
     { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
     JSON.stringify(rows)
   );
-  invalidateCache("assignments");
 }
 
 export async function deleteAssignmentsBulk(building_ids) {
@@ -257,7 +265,6 @@ export async function deleteAssignmentsBulk(building_ids) {
     headers(),
     undefined
   );
-  invalidateCache("assignments");
 }
 
 // PATCH the is_priority flag for a set of already-assigned buildings.
@@ -272,9 +279,9 @@ export async function setPriorityBulk(building_ids, is_priority) {
     headers(),
     JSON.stringify({ is_priority })
   );
-  invalidateCache("assignments");
 }
 
+/** @returns {Promise<GroupAccess[]>} */
 export async function fetchAllGroupAccess() {
   // Same rationale as fetchAllAssignments — fresh each time.
   return fetchAllPaged(`${SUPABASE_URL}/rest/v1/group_access?select=group_id,granted_group_id`);
@@ -287,7 +294,6 @@ export async function upsertGroupAccess({ group_id, granted_group_id }) {
     { ...headers(), "Prefer": "resolution=merge-duplicates,return=minimal" },
     JSON.stringify({ group_id, granted_group_id })
   );
-  invalidateCache("access");
 }
 
 export async function deleteGroupAccess({ group_id, granted_group_id }) {
@@ -299,7 +305,6 @@ export async function deleteGroupAccess({ group_id, granted_group_id }) {
     headers(),
     undefined
   );
-  invalidateCache("access");
 }
 
 export async function deleteAnnotation({ building_id, group_id }) {

@@ -18,10 +18,9 @@ const UNASSIGNED_FILL = "#c8c8c8";
 
 let mode = "idle";              // idle | brush | erase | priority
 let currentGroup = localStorage.getItem("adminCurrentGroup") || GROUPS[0].id;
-let assignments = {};           // building_id → group_id
-let priorities = new Set();     // building_ids flagged as "easily forgotten"
+let assignments = {};           // building_id → { group, priority } | undefined
 let access = {};                // group_id → Set<granted_group_id>
-let history = [];               // [{ id, prev: group_id|null }]
+let history = [];               // [{ id, prev: { group, priority } | null }]
 let layersById = new Map();
 let culler;
 
@@ -126,10 +125,8 @@ async function loadAll() {
       fetchAllGroupAccess().catch(e => { console.warn("access load failed:", e.message); return []; })
     ]);
     assignments = {};
-    priorities = new Set();
     assignRows.forEach(r => {
-      assignments[r.building_id] = r.group_id;
-      if (r.is_priority) priorities.add(r.building_id);
+      assignments[r.building_id] = { group: r.group_id, priority: !!r.is_priority };
     });
     access = {};
     accessRows.forEach(r => ensureAccessSet(r.group_id).add(r.granted_group_id));
@@ -161,8 +158,9 @@ async function renderBuildings() {
 }
 
 function buildingStyle(id) {
-  const g = assignments[id];
-  const prio = priorities.has(id);
+  const a = assignments[id];
+  const g = a?.group;
+  const prio = !!a?.priority;
   if (!g) {
     return prio
       ? { color: "#ffc107", weight: 3, dashArray: "6 4", fillColor: UNASSIGNED_FILL, fillOpacity: 0.4 }
@@ -178,11 +176,13 @@ function buildingStyle(id) {
 function assignBuilding(id) {
   const layer = layersById.get(id);
   if (!layer) return;
-  const prev = assignments[id] || null;
-  if (prev === currentGroup) return;
+  const before = assignments[id];
+  if (before?.group === currentGroup) return;
 
-  history.push({ id, prev });
-  assignments[id] = currentGroup;
+  history.push({ id, prev: before ? { ...before } : null });
+  // Reassignment preserves any prior priority flag — matches the server-side
+  // partial-upsert behaviour, where is_priority isn't overwritten.
+  assignments[id] = { group: currentGroup, priority: !!before?.priority };
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
 
@@ -192,12 +192,11 @@ function assignBuilding(id) {
 function unassignBuilding(id) {
   const layer = layersById.get(id);
   if (!layer) return;
-  const prev = assignments[id] || null;
-  if (!prev) return;
+  const before = assignments[id];
+  if (!before) return;
 
-  history.push({ id, prev });
-  delete assignments[id];
-  priorities.delete(id);   // priority is meaningless without an assignment
+  history.push({ id, prev: { ...before } });
+  delete assignments[id];   // priority dies with the row
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
 
@@ -210,15 +209,15 @@ function unassignBuilding(id) {
 function togglePriority(id) {
   const layer = layersById.get(id);
   if (!layer) return;
-  if (!assignments[id]) {
+  const a = assignments[id];
+  if (!a) {
     showToast("Erst der Gruppe zuweisen");
     return;
   }
-  const next = !priorities.has(id);
-  if (next) priorities.add(id); else priorities.delete(id);
+  a.priority = !a.priority;
   layer.setStyle(buildingStyle(id));
   if (navigator.vibrate) navigator.vibrate(8);
-  pendingPriority.set(id, next);
+  pendingPriority.set(id, a.priority);
   scheduleHeartbeat();
 }
 
@@ -301,8 +300,12 @@ function undo() {
   const { id, prev } = last;
   const layer = layersById.get(id);
   if (prev) {
-    assignments[id] = prev;
-    queue(id, prev);
+    assignments[id] = { ...prev };
+    queue(id, prev.group);
+    // The current server-side priority may differ from what was here at
+    // the time of the action, so push the prior priority too.
+    pendingPriority.set(id, prev.priority);
+    scheduleHeartbeat();
   } else {
     delete assignments[id];
     queue(id, null);

@@ -20,8 +20,7 @@ let currentPeriod = localStorage.getItem("currentPeriod") || "morning";
 let groupId = "";
 let annotations = {};       // building_id → own annotation
 let foreignAnn = {};        // building_id → { group_id, color } for other groups (display-only)
-let assignments = {};       // building_id → group_id (territory)
-let priorities = new Set(); // building_ids the admin flagged as "easily forgotten"
+let assignments = {};       // building_id → { group, priority } | undefined
 let allowedGroups = new Set();  // groups whose territory I can paint
 let history = [];           // [{id, prev: ann|null}]
 let layersById = new Map();
@@ -135,10 +134,8 @@ async function loadAnnotations() {
       }
     });
     assignments = {};
-    priorities = new Set();
     assignRows.forEach(r => {
-      assignments[r.building_id] = r.group_id;
-      if (r.is_priority) priorities.add(r.building_id);
+      assignments[r.building_id] = { group: r.group_id, priority: !!r.is_priority };
     });
     allowedGroups = new Set([groupId]);
     accessRows.forEach(r => {
@@ -192,14 +189,14 @@ function isAllowed(buildingId) {
   // Before any territories are configured, fall back to allowing everything
   // so the app stays usable. Once the admin has assigned anything, we gate.
   if (Object.keys(assignments).length === 0) return true;
-  const g = assignments[buildingId];
+  const g = assignments[buildingId]?.group;
   return !!g && allowedGroups.has(g);
 }
 
 function buildingStyle(id) {
   const ann = annotations[id];
   const allowed = isAllowed(id);
-  const prio = priorities.has(id) && allowed;   // only emphasise in own territory
+  const prio = !!assignments[id]?.priority && allowed;   // only emphasise in own territory
 
   let base;
   if (ann) {
